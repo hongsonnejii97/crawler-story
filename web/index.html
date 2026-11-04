@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Công Cụ Cào Truyện Xuất Word Chuyên Nghiệp</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-md shadow-indigo-100">
+          <i data-lucide="book-open" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold text-slate-900 leading-tight">StoryNovel To Word Pro</h1>
+          <p class="text-xs text-slate-500 font-medium">Cào truyện đa nguồn • Lọc sạch quảng cáo • Xuất trọn bộ 1 File Word</p>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="flex items-center space-x-1 sm:space-x-2 bg-slate-100 p-1 rounded-xl">
+        <button id="tab-btn-crawl" onclick="switchTab('crawl')" class="px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center space-x-2 bg-white text-indigo-700 shadow-sm">
+          <i data-lucide="download-cloud" class="w-4 h-4"></i>
+          <span>Cào Truyện</span>
+        </button>
+        <button id="tab-btn-filter" onclick="switchTab('filter')" class="px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center space-x-2 text-slate-600 hover:text-slate-900">
+          <i data-lucide="shield-check" class="w-4 h-4"></i>
+          <span>Bộ Lọc Quảng Cáo</span>
+        </button>
+        <button id="tab-btn-files" onclick="switchTab('files')" class="px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center space-x-2 text-slate-600 hover:text-slate-900">
+          <i data-lucide="folder-down" class="w-4 h-4"></i>
+          <span>Thư Viện Word (<span id="files-count-badge">0</span>)</span>
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full">
+
+    <!-- ==================== TAB 1: CRAWLER ==================== -->
+    <div id="tab-crawl" class="space-y-6">
+
+      <!-- Input Card -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 class="text-base font-bold text-slate-900 flex items-center space-x-2">
+              <i data-lucide="link-2" class="w-5 h-5 text-indigo-600"></i>
+              <span>Danh Sách Link Truyện Cần Cào</span>
+            </h2>
+            <p class="text-xs text-slate-500 mt-1">Hỗ trợ dán cùng lúc nhiều link (mỗi dòng 1 link). Tool sẽ tự động xử lý tuần tự từng truyện vào từng file Word riêng biệt.</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <label class="cursor-pointer px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition">
+              <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+              <span>Nhập từ file .txt</span>
+              <input type="file" accept=".txt" class="hidden" onchange="handleFileUpload(event)">
+            </label>
+            <button onclick="insertSampleUrl()" class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg transition">
+              Dán link mẫu
+            </button>
+            <button onclick="clearUrls()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold rounded-lg transition">
+              Xóa trắng
+            </button>
+          </div>
+        </div>
+
+        <!-- URL Textarea -->
+        <div>
+          <textarea id="url-input" rows="4" placeholder="Dán danh sách link truyện tại đây, ví dụ:&#10;https://wetruyen.com/bat-ai-thanh-hon.1381/&#10;https://sstruyen.net/truyen/cung-chieu-vo-nho-troi-ban&#10;https://truyenfull.vn/tien-nghich/" class="w-full rounded-xl border border-slate-300 p-3.5 text-sm font-mono focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition resize-y"></textarea>
+          <div class="flex justify-between items-center text-xs text-slate-400 mt-1.5">
+            <span>Tự động nhận diện TruyenFull, WeTruyen, DTruyen, SSTruyen, TangThuVien & bộ bóc tách thông minh cho mọi web.</span>
+            <span id="detected-urls-count" class="font-semibold text-slate-600">0 link được phát hiện</span>
+          </div>
+        </div>
+
+        <!-- Advanced Settings Accordion -->
+        <div class="border-t border-slate-100 pt-5">
+          <button onclick="toggleAdvancedSettings()" class="text-xs font-bold text-slate-700 flex items-center space-x-2 hover:text-indigo-600 transition">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4 text-indigo-500"></i>
+            <span>Tùy chỉnh cấu hình cào & định dạng file Word</span>
+            <i id="adv-arrow" data-lucide="chevron-down" class="w-3.5 h-3.5 transition-transform"></i>
+          </button>
+
+          <div id="advanced-settings-panel" class="hidden grid grid-cols-1 md:grid-cols-4 gap-4 mt-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <!-- Workers -->
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Số luồng tải song song</label>
+              <select id="cfg-workers" class="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 focus:ring-indigo-500">
+                <option value="1">1 luồng (Chậm, an toàn nhất)</option>
+                <option value="2">2 luồng</option>
+                <option value="3" selected>3 luồng (Khuyên dùng)</option>
+                <option value="5">5 luồng (Nhanh)</option>
+                <option value="8">8 luồng (Rất nhanh)</option>
+              </select>
+            </div>
+
+            <!-- Request Delay -->
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Thời gian chờ giữa các chương</label>
+              <select id="cfg-delay" class="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 focus:ring-indigo-500">
+                <option value="0.1">0.1 giây (Siêu tốc)</option>
+                <option value="0.3" selected>0.3 giây (Khuyên dùng)</option>
+                <option value="0.5">0.5 giây</option>
+                <option value="1.0">1.0 giây (Chống chặn IP)</option>
+              </select>
+            </div>
+
+            <!-- Chapter Range -->
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Phạm vi chương tải</label>
+              <div class="flex items-center space-x-1">
+                <input id="cfg-start-chap" type="number" value="1" min="1" placeholder="Từ" class="w-1/2 text-xs bg-white border border-slate-300 rounded-lg p-2 text-center">
+                <span class="text-xs text-slate-400">→</span>
+                <input id="cfg-end-chap" type="number" placeholder="Hết" min="1" class="w-1/2 text-xs bg-white border border-slate-300 rounded-lg p-2 text-center">
+              </div>
+            </div>
+
+            <!-- Word Typography -->
+            <div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Font & Mục lục Word</label>
+              <div class="flex items-center space-x-2">
+                <select id="cfg-font" class="w-2/3 text-xs bg-white border border-slate-300 rounded-lg p-2">
+                  <option value="Times New Roman" selected>Times New Roman</option>
+                  <option value="Calibri">Calibri</option>
+                  <option value="Georgia">Georgia</option>
+                  <option value="Arial">Arial</option>
+                </select>
+                <label class="flex items-center space-x-1 cursor-pointer">
+                  <input id="cfg-include-toc" type="checkbox" checked class="rounded text-indigo-600 focus:ring-0">
+                  <span class="text-xs text-slate-600 font-medium">Mục lục</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+          <div class="text-xs text-slate-500 flex items-center space-x-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>Bộ lọc quảng cáo & rác thông minh đang BẬT.</span>
+          </div>
+
+          <div class="flex items-center space-x-3 w-full sm:w-auto">
+            <button id="btn-cancel" onclick="cancelCrawl()" disabled class="flex-1 sm:flex-none px-4 py-2.5 rounded-xl border border-rose-300 text-rose-600 bg-rose-50 hover:bg-rose-100 text-xs font-bold transition disabled:opacity-40 disabled:pointer-events-none flex items-center justify-center space-x-1.5">
+              <i data-lucide="square" class="w-4 h-4"></i>
+              <span>Dừng Lại</span>
+            </button>
+            <button id="btn-start" onclick="startCrawl()" class="flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-xs sm:text-sm font-bold shadow-md shadow-indigo-200 transition flex items-center justify-center space-x-2">
+              <i data-lucide="play" class="w-4 h-4 fill-current"></i>
+              <span>Bắt Đầu Cào Truyện & Xuất Word</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live Progress & Log Monitor Card -->
+      <div id="progress-card" class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-bold text-slate-900 flex items-center space-x-2">
+              <i data-lucide="activity" class="w-4 h-4 text-indigo-600"></i>
+              <span>Tiến Độ Cào Truyện Trực Tiếp</span>
+            </h3>
+            <p id="progress-subtitle" class="text-xs text-slate-500 mt-0.5">Sẵn sàng thực hiện tác vụ...</p>
+          </div>
+          <span id="badge-status" class="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 uppercase tracking-wider">
+            Chờ lệnh
+          </span>
+        </div>
+
+        <!-- Progress Bar & Metrics -->
+        <div class="space-y-2">
+          <div class="flex justify-between text-xs font-semibold">
+            <span id="metric-story" class="text-slate-700">Truyện: Chưa có</span>
+            <span id="metric-percentage" class="text-indigo-600 font-bold">0%</span>
+          </div>
+          <div class="w-full bg-slate-100 h-3 rounded-full overflow-hidden p-0.5 border border-slate-200">
+            <div id="progress-bar-fill" class="bg-gradient-to-r from-indigo-500 to-violet-500 h-full rounded-full transition-all duration-300 w-0"></div>
+          </div>
+          <div class="flex justify-between text-xs text-slate-500">
+            <span id="metric-chapter-detail">Số chương: 0 / 0</span>
+            <span id="metric-current-chap-name" class="font-medium text-slate-600 truncate max-w-md"></span>
+          </div>
+        </div>
+
+        <!-- Live Terminal Log -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-xs font-bold text-slate-700">
+            <span class="flex items-center space-x-1.5">
+              <i data-lucide="terminal" class="w-3.5 h-3.5 text-slate-500"></i>
+              <span>Nhật Ký Quá Trình (Live Console)</span>
+            </span>
+            <button onclick="clearLogs()" class="text-slate-400 hover:text-slate-600 text-[11px] font-normal">Xóa log</button>
+          </div>
+          <div id="log-terminal" class="bg-slate-900 text-slate-200 p-3.5 rounded-xl text-xs font-mono h-52 overflow-y-auto space-y-1 shadow-inner">
+            <div class="text-slate-500">// Hệ thống sẵn sàng. Vui lòng nhập link và bấm Bắt Đầu.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 2: AD FILTERS ==================== -->
+    <div id="tab-filter" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+        <div>
+          <h2 class="text-base font-bold text-slate-900 flex items-center space-x-2">
+            <i data-lucide="shield-alert" class="w-5 h-5 text-indigo-600"></i>
+            <span>Cấu Hình Bộ Lọc Quảng Cáo & Watermark</span>
+          </h2>
+          <p class="text-xs text-slate-500 mt-1">Hệ thống tự động loại bỏ các thẻ quảng cáo ẩn, link donate, nhóm telegram, watermark dịch giả để giữ nguyên 100% nội dung truyện sạch đẹp.</p>
+        </div>
+
+        <!-- Built-in feature cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5">
+              <i data-lucide="code-2" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h4 class="text-xs font-bold text-slate-900">Xóa Mã HTML Quảng Cáo</h4>
+              <p class="text-xs text-slate-500 mt-0.5">Tự động xóa sạch thẻ &lt;script&gt;, &lt;ins class="adsbygoogle"&gt;, banner, iframe, và các khối qc xen giữa các đoạn văn.</p>
+            </div>
+          </div>
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start space-x-3">
+            <div class="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0 mt-0.5">
+              <i data-lucide="filter" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h4 class="text-xs font-bold text-slate-900">Lọc Câu Spam & Watermark</h4>
+              <p class="text-xs text-slate-500 mt-0.5">Nhận diện và xóa bỏ câu chèn link website, số tài khoản donate, mời vào group Zalo/Telegram, tải app...</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Custom Blacklist Keyword Manager -->
+        <div class="space-y-4 border-t border-slate-100 pt-5">
+          <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Từ Khóa & Mẫu Regex Đang Chặn</h3>
+          <div class="flex items-center space-x-2">
+            <input id="new-filter-keyword" type="text" placeholder="Nhập từ hoặc cụm từ quảng cáo muốn xóa (ví dụ: 'Ủng hộ nhóm dịch', 'zalo.me/...')" class="flex-1 text-xs border border-slate-300 rounded-xl p-2.5 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500">
+            <button onclick="addAdKeyword()" class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1">
+              <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+              <span>Thêm Từ Khóa</span>
+            </button>
+          </div>
+
+          <!-- Keyword Badges List -->
+          <div id="keywords-badge-container" class="flex flex-wrap gap-2 pt-2">
+            <!-- Rendered dynamically -->
+          </div>
+
+          <div class="flex justify-end pt-2">
+            <button onclick="saveAdConfig()" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm">
+              <i data-lucide="save" class="w-3.5 h-3.5"></i>
+              <span>Lưu Cấu Hình Bộ Lọc</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Ad Cleaner Sandbox -->
+        <div class="border-t border-slate-100 pt-5 space-y-4">
+          <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Thử Nghiệm Lọc Nội Dung (Sandbox)</h3>
+          <p class="text-xs text-slate-500">Dán link 1 chương hoặc đoạn văn bản bất kỳ để xem trước kết quả lọc sạch quảng cáo ngay lập tức:</p>
+          <div class="flex items-center space-x-2">
+            <input id="preview-url-input" type="text" placeholder="Dán link 1 chương truyện (ví dụ: https://wetruyen.com/bat-ai-thanh-hon/chuong-1.html)" class="flex-1 text-xs border border-slate-300 rounded-xl p-2.5 focus:border-indigo-500">
+            <button onclick="testCleanPreview()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center space-x-1">
+              <i data-lucide="search" class="w-3.5 h-3.5"></i>
+              <span>Kiểm Tra Thử</span>
+            </button>
+          </div>
+          <div id="preview-result-box" class="hidden bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs space-y-2 max-h-72 overflow-y-auto">
+            <!-- Preview results here -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== TAB 3: DOWNLOADS LIBRARY ==================== -->
+    <div id="tab-files" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h2 class="text-base font-bold text-slate-900 flex items-center space-x-2">
+              <i data-lucide="folder-check" class="w-5 h-5 text-indigo-600"></i>
+              <span>Thư Viện Truyện Đã Xuất File Word (.docx)</span>
+            </h2>
+            <p class="text-xs text-slate-500 mt-1">Tất cả file Word đã được lưu an toàn tại thư mục <code class="bg-slate-100 px-1 py-0.5 rounded text-indigo-700">output/</code> trên máy tính của bạn.</p>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button onclick="openOutputFolder()" class="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-sm">
+              <i data-lucide="folder-open" class="w-4 h-4"></i>
+              <span>Mở Thư Mục Trên Máy Tính</span>
+            </button>
+            <button onclick="fetchFileList()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center space-x-1">
+              <i data-lucide="rotate-cw" class="w-3.5 h-3.5"></i>
+              <span>Làm mới</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Files Table -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr class="border-b border-slate-200 text-slate-400 font-semibold uppercase tracking-wider">
+                <th class="py-3 px-4">Tên File Word (.docx)</th>
+                <th class="py-3 px-4">Dung Lượng</th>
+                <th class="py-3 px-4">Thời Gian Tạo</th>
+                <th class="py-3 px-4 text-right">Thao Tác</th>
+              </tr>
+            </thead>
+            <tbody id="files-table-body" class="divide-y divide-slate-100">
+              <tr>
+                <td colspan="4" class="py-8 text-center text-slate-400">Đang tải danh sách file...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
+    <p>Novel Story Crawler To Word &bull; Dành cho nhu cầu lưu trữ và đọc truyện offline không quảng cáo.</p>
+  </footer>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="fixed bottom-6 right-6 max-w-sm bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl flex items-center space-x-3 text-xs z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none">
+    <i id="toast-icon" data-lucide="info" class="w-4 h-4 text-indigo-400 shrink-0"></i>
+    <span id="toast-msg">Thông báo</span>
+  </div>
+
+  <script>
+    // State
+    let pollInterval = null;
+    let customKeywords = [];
+
+    // Initialize
+    document.addEventListener("DOMContentLoaded", () => {
+      lucide.createIcons();
+      loadKeywordsConfig();
+      fetchFileList();
+      checkExistingJob();
+
+      // Detect URL input count
+      document.getElementById("url-input").addEventListener("input", updateUrlCount);
+    });
+
+    function showToast(msg, type = "info") {
+      const toast = document.getElementById("toast");
+      const toastMsg = document.getElementById("toast-msg");
+      const toastIcon = document.getElementById("toast-icon");
+
+      toastMsg.innerText = msg;
+      toast.classList.remove("translate-y-20", "opacity-0", "pointer-events-none");
+
+      setTimeout(() => {
+        toast.classList.add("translate-y-20", "opacity-0", "pointer-events-none");
+      }, 3500);
+    }
+
+    function switchTab(tabId) {
+      ["crawl", "filter", "files"].forEach(t => {
+        document.getElementById(`tab-${t}`).classList.add("hidden");
+        const btn = document.getElementById(`tab-btn-${t}`);
+        btn.classList.remove("bg-white", "text-indigo-700", "shadow-sm");
+        btn.classList.add("text-slate-600");
+      });
+
+      document.getElementById(`tab-${tabId}`).classList.remove("hidden");
+      const activeBtn = document.getElementById(`tab-btn-${tabId}`);
+      activeBtn.classList.add("bg-white", "text-indigo-700", "shadow-sm");
+      activeBtn.classList.remove("text-slate-600");
+
+      if (tabId === "files") {
+        fetchFileList();
+      }
+      lucide.createIcons();
+    }
+
+    function toggleAdvancedSettings() {
+      const panel = document.getElementById("advanced-settings-panel");
+      const arrow = document.getElementById("adv-arrow");
+      panel.classList.toggle("hidden");
+      arrow.classList.toggle("rotate-180");
+    }
+
+    function updateUrlCount() {
+      const text = document.getElementById("url-input").value;
+      const urls = text.split("\n").map(l => l.trim()).filter(l => l.startsWith("http"));
+      document.getElementById("detected-urls-count").innerText = `${urls.length} link được phát hiện`;
+    }
+
+    function insertSampleUrl() {
+      const sample = "https://wetruyen.com/bat-ai-thanh-hon.1381/";
+      const input = document.getElementById("url-input");
+      if (input.value.trim()) {
+        input.value += "\n" + sample;
+      } else {
+        input.value = sample;
+      }
+      updateUrlCount();
+      showToast("Đã chèn link mẫu vào danh sách.");
+    }
+
+    function clearUrls() {
+      document.getElementById("url-input").value = "";
+      updateUrlCount();
+    }
+
+    function handleFileUpload(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        document.getElementById("url-input").value = e.target.result;
+        updateUrlCount();
+        showToast(`Đã nạp file: ${file.name}`);
+      };
+      reader.readAsText(file);
+    }
+
+    // Crawl Execution
+    async function startCrawl() {
+      const rawText = document.getElementById("url-input").value;
+      const urls = rawText.split("\n").map(l => l.trim()).filter(l => l.startsWith("http"));
+
+      if (urls.length === 0) {
+        showToast("Vui lòng dán ít nhất 1 link truyện hợp lệ!", "error");
+        return;
+      }
+
+      const workers = parseInt(document.getElementById("cfg-workers").value);
+      const delay = parseFloat(document.getElementById("cfg-delay").value);
+      const startChap = parseInt(document.getElementById("cfg-start-chap").value) || 1;
+      const endChapVal = document.getElementById("cfg-end-chap").value.trim();
+      const endChap = endChapVal ? parseInt(endChapVal) : null;
+      const fontName = document.getElementById("cfg-font").value;
+      const includeToc = document.getElementById("cfg-include-toc").checked;
+
+      const payload = {
+        urls: urls,
+        start_chapter: startChap,
+        end_chapter: endChap,
+        max_workers: workers,
+        request_delay: delay,
+        include_toc: includeToc,
+        font_name: fontName,
+        font_size: 12
+      };
+
+      try {
+        const resp = await fetch("/api/crawl", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          showToast(err.detail || "Không thể khởi động cào truyện.", "error");
+          return;
+        }
+
+        showToast("Đã khởi động tiến trình cào truyện!");
+        document.getElementById("btn-start").disabled = true;
+        document.getElementById("btn-cancel").disabled = false;
+        startPolling();
+      } catch (err) {
+        showToast("Lỗi kết nối máy chủ: " + err, "error");
+      }
+    }
+
+    async function cancelCrawl() {
+      try {
+        await fetch("/api/cancel", { method: "POST" });
+        showToast("Đang gửi yêu cầu dừng...");
+      } catch (e) {
+        showToast("Lỗi: " + e, "error");
+      }
+    }
+
+    function startPolling() {
+      if (pollInterval) clearInterval(pollInterval);
+      pollInterval = setInterval(updateProgress, 800);
+      updateProgress();
+    }
+
+    async function checkExistingJob() {
+      try {
+        const res = await fetch("/api/progress");
+        const data = await res.json();
+        if (data.is_running) {
+          document.getElementById("btn-start").disabled = true;
+          document.getElementById("btn-cancel").disabled = false;
+          startPolling();
+        }
+      } catch (e) {}
+    }
+
+    async function updateProgress() {
+      try {
+        const resp = await fetch("/api/progress");
+        const data = await resp.json();
+
+        // Update progress bar
+        const pct = data.percentage || 0;
+        document.getElementById("metric-percentage").innerText = `${pct}%`;
+        document.getElementById("progress-bar-fill").style.width = `${pct}%`;
+
+        // Story label
+        if (data.total_stories > 0) {
+          document.getElementById("metric-story").innerText = `Truyện (${data.current_story_idx}/${data.total_stories}): ${data.current_story_title || 'Đang phân tích...'}`;
+        }
+
+        // Chapters
+        document.getElementById("metric-chapter-detail").innerText = `Đã tải: ${data.current_chapter} / ${data.total_chapters} chương`;
+        document.getElementById("metric-current-chap-name").innerText = data.current_chapter_title ? `Đang xử lý: ${data.current_chapter_title}` : '';
+
+        // Status badge
+        const badge = document.getElementById("badge-status");
+        if (data.is_running) {
+          badge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 animate-pulse uppercase tracking-wider";
+          badge.innerText = "Đang cào...";
+          document.getElementById("progress-subtitle").innerText = "Hệ thống đang tải dữ liệu và làm sạch văn bản...";
+        } else if (data.status === "finished") {
+          badge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 uppercase tracking-wider";
+          badge.innerText = "Hoàn tất!";
+          document.getElementById("progress-subtitle").innerText = "Đã hoàn thành toàn bộ công việc cào truyện!";
+          document.getElementById("btn-start").disabled = false;
+          document.getElementById("btn-cancel").disabled = true;
+          clearInterval(pollInterval);
+          fetchFileList();
+        } else if (data.status === "cancelled") {
+          badge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700 uppercase tracking-wider";
+          badge.innerText = "Đã hủy";
+          document.getElementById("progress-subtitle").innerText = "Quá trình đã dừng lại.";
+          document.getElementById("btn-start").disabled = false;
+          document.getElementById("btn-cancel").disabled = true;
+          clearInterval(pollInterval);
+        }
+
+        // Logs
+        renderLogs(data.logs || []);
+
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }
+
+    function renderLogs(logs) {
+      const container = document.getElementById("log-terminal");
+      if (!logs || logs.length === 0) return;
+
+      container.innerHTML = logs.map(l => {
+        let colorClass = "text-slate-300";
+        if (l.level === "success") colorClass = "text-emerald-400 font-semibold";
+        if (l.level === "error") colorClass = "text-rose-400 font-semibold";
+        if (l.level === "warning") colorClass = "text-amber-400";
+        return `<div class="leading-relaxed"><span class="text-slate-500">[${l.time}]</span> <span class="${colorClass}">${escapeHtml(l.message)}</span></div>`;
+      }).join("");
+
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function clearLogs() {
+      document.getElementById("log-terminal").innerHTML = '<div class="text-slate-500">// Đã xóa nhật ký.</div>';
+    }
+
+    function escapeHtml(text) {
+      const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+      return text.replace(/[&<>"']/g, m => map[m]);
+    }
+
+    // Files Library
+    async function fetchFileList() {
+      try {
+        const resp = await fetch("/api/files");
+        const data = await resp.json();
+        const files = data.files || [];
+        document.getElementById("files-count-badge").innerText = files.length;
+
+        const tbody = document.getElementById("files-table-body");
+        if (files.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="4" class="py-12 text-center text-slate-400">Chưa có file Word nào trong thư mục output/. Hãy dán link và bắt đầu cào truyện nhé!</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = files.map(f => `
+          <tr class="hover:bg-slate-50 transition">
+            <td class="py-3 px-4 font-semibold text-slate-900 flex items-center space-x-2">
+              <i data-lucide="file-text" class="w-4 h-4 text-indigo-600 shrink-0"></i>
+              <span class="truncate max-w-sm sm:max-w-md">${escapeHtml(f.name)}</span>
+            </td>
+            <td class="py-3 px-4 text-slate-600 font-medium">${f.size_mb} MB</td>
+            <td class="py-3 px-4 text-slate-500">${f.created_at}</td>
+            <td class="py-3 px-4 text-right space-x-2">
+              <a href="/api/download/${encodeURIComponent(f.name)}" class="inline-flex items-center space-x-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg transition">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                <span>Tải Word</span>
+              </a>
+              <button onclick="deleteFile('${encodeURIComponent(f.name)}')" class="inline-flex items-center space-x-1 px-2.5 py-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition" title="Xóa file">
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+              </button>
+            </td>
+          </tr>
+        `).join("");
+
+        lucide.createIcons();
+      } catch (err) {
+        console.error("Error fetching files:", err);
+      }
+    }
+
+    async function openOutputFolder() {
+      try {
+        const resp = await fetch("/api/open-folder", { method: "POST" });
+        if (resp.ok) {
+          showToast("Đã mở thư mục output/ trên máy tính!");
+        } else {
+          showToast("Không thể mở thư mục tự động.", "error");
+        }
+      } catch (e) {
+        showToast("Lỗi: " + e, "error");
+      }
+    }
+
+    async function deleteFile(filename) {
+      if (!confirm(`Bạn có chắc chắn muốn xóa file này không?`)) return;
+      try {
+        await fetch(`/api/files/${filename}`, { method: "DELETE" });
+        showToast("Đã xóa file.");
+        fetchFileList();
+      } catch (e) {
+        showToast("Lỗi khi xóa: " + e, "error");
+      }
+    }
+
+    // Ad Config
+    async function loadKeywordsConfig() {
+      try {
+        const resp = await fetch("/api/config");
+        const data = await resp.json();
+        customKeywords = data.custom_ad_phrases || [];
+        renderKeywordsBadges();
+      } catch (e) {}
+    }
+
+    function renderKeywordsBadges() {
+      const container = document.getElementById("keywords-badge-container");
+      container.innerHTML = customKeywords.map((kw, idx) => `
+        <span class="inline-flex items-center space-x-1.5 px-3 py-1 bg-slate-100 text-slate-800 rounded-lg text-xs font-medium border border-slate-200">
+          <span>${escapeHtml(kw)}</span>
+          <button onclick="removeKeyword(${idx})" class="text-slate-400 hover:text-rose-600 transition">
+            <i data-lucide="x" class="w-3 h-3"></i>
+          </button>
+        </span>
+      `).join("");
+      lucide.createIcons();
+    }
+
+    function addAdKeyword() {
+      const input = document.getElementById("new-filter-keyword");
+      const val = input.value.trim();
+      if (!val) return;
+      if (!customKeywords.includes(val)) {
+        customKeywords.push(val);
+        renderKeywordsBadges();
+        input.value = "";
+      }
+    }
+
+    function removeKeyword(idx) {
+      customKeywords.splice(idx, 1);
+      renderKeywordsBadges();
+    }
+
+    async function saveAdConfig() {
+      try {
+        await fetch("/api/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ custom_ad_phrases: customKeywords })
+        });
+        showToast("Đã lưu bộ từ khóa quảng cáo!");
+      } catch (e) {
+        showToast("Lỗi khi lưu cấu hình: " + e, "error");
+      }
+    }
+
+    async function testCleanPreview() {
+      const url = document.getElementById("preview-url-input").value.trim();
+      if (!url) {
+        showToast("Vui lòng nhập link chương để kiểm tra thử!", "error");
+        return;
+      }
+
+      const resultBox = document.getElementById("preview-result-box");
+      resultBox.classList.remove("hidden");
+      resultBox.innerHTML = '<div class="text-slate-400 animate-pulse">Đang tải và lọc sạch quảng cáo...</div>';
+
+      try {
+        const resp = await fetch("/api/preview-clean", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: url })
+        });
+
+        if (!resp.ok) {
+          const err = await resp.json();
+          resultBox.innerHTML = `<div class="text-rose-500 font-semibold">${err.detail || 'Lỗi kiểm tra.'}</div>`;
+          return;
+        }
+
+        const data = await resp.json();
+        resultBox.innerHTML = `
+          <div class="font-bold text-slate-900 border-b border-slate-200 pb-1 flex justify-between">
+            <span>Tiêu đề: ${escapeHtml(data.title)}</span>
+            <span class="text-emerald-600 font-semibold">${data.paragraphs_count} đoạn văn bản sạch</span>
+          </div>
+          <div class="space-y-1.5 text-slate-700 font-mono text-[11px] pt-1">
+            ${data.paragraphs.map(p => `<p class="border-l-2 border-indigo-400 pl-2">${escapeHtml(p)}</p>`).join("")}
+          </div>
+        `;
+      } catch (e) {
+        resultBox.innerHTML = `<div class="text-rose-500">Lỗi: ${e}</div>`;
+      }
+    }
+  </script>
+</body>
+</html>
+

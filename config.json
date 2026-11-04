@@ -1,0 +1,20 @@
+{
+  "max_workers": 3,
+  "request_delay": 0.3,
+  "include_toc": true,
+  "font_name": "Times New Roman",
+  "font_size": 12,
+  "filter_html_ads": true,
+  "filter_text_ads": true,
+  "custom_ad_phrases": [
+    "đọc truyện tại",
+    "truy cập website",
+    "ủng hộ dịch giả",
+    "donate qua",
+    "stk ngân hàng",
+    "mời bạn tham gia group",
+    "chúc bạn đọc truyện vui vẻ",
+    "tải app để đọc",
+    "Mời Quý độc giả CLICK vào liên kết hoặc ảnh bên dưới mở ứng dụng Shopee, sau đó quay trở lại để tiếp tục đọc toàn bộ chương truyện! MonkeyD và đội ngũ Editor xin chân thành cảm ơn!"
+  ]
+}
