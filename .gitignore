@@ -3,7 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Output files (crawled docx)
+# Output files (crawled zip / docx)
+output/*.zip
 output/*.docx
 !output/.gitkeep
 
@@ -21,4 +22,3 @@ ENV/
 *.sublime-workspace
 .DS_Store
 Thumbs.db
-

@@ -3,16 +3,14 @@ Configuration Manager for crawler settings and ad filters.
 """
 import os
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 CONFIG_FILE = "config.json"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "max_workers": 3,
     "request_delay": 0.3,
-    "include_toc": True,
-    "font_name": "Times New Roman",
-    "font_size": 12,
+    "export_mode": "individual",
     "filter_html_ads": True,
     "filter_text_ads": True,
     "custom_ad_phrases": [
@@ -44,4 +42,3 @@ def save_config(new_config: Dict[str, Any]):
     """Save configuration to config.json."""
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(new_config, f, ensure_ascii=False, indent=2)
-

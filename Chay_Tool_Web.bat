@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 title Story Novel Crawler - Web Dashboard
 
 echo ===================================================================
-echo     CONG CU CAO TRUYEN XUAT FILE WORD (KHONG TOM TAT)
+echo     CONG CU CAO TRUYEN DONG GOI ZIP (STORY-TRANSFER)
 echo ===================================================================
 echo.
 
@@ -64,7 +64,7 @@ echo ===================================================================
 rem Open browser in background
 start "" cmd /c "timeout /t 2 /nobreak >nul & start http://localhost:8000"
 
-rem Launch Uvicorn Web Server
-"%PY_EXE%" -m uvicorn app:app --host 127.0.0.1 --port 8000
+rem Launch Uvicorn Web Server with auto-reload
+"%PY_EXE%" -m uvicorn app:app --host 127.0.0.1 --port 8000 --reload
 
 pause

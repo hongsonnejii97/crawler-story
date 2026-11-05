@@ -1,8 +1,9 @@
 """
 Master Story Crawler module.
-Manages story crawling lifecycle, concurrency, progress tracking, and Word document compilation.
+Manages story crawling lifecycle, concurrency, progress tracking, and Story-Transfer ZIP packaging.
 """
 import os
+import html
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,7 +11,7 @@ from typing import List, Optional, Callable, Dict, Any
 
 from .fetcher import Fetcher
 from .cleaner import ContentCleaner
-from .doc_builder import DocBuilder
+from .zip_builder import ZipBuilder
 from .site_handlers import get_handler_for_url
 from .site_handlers.base import StoryInfo, ChapterItem, ChapterContent
 
@@ -21,12 +22,12 @@ class StoryCrawler:
         self,
         fetcher: Optional[Fetcher] = None,
         cleaner: Optional[ContentCleaner] = None,
-        doc_builder: Optional[DocBuilder] = None,
+        zip_builder: Optional[ZipBuilder] = None,
         output_dir: str = "output"
     ):
         self.fetcher = fetcher or Fetcher()
         self.cleaner = cleaner or ContentCleaner()
-        self.doc_builder = doc_builder or DocBuilder()
+        self.zip_builder = zip_builder or ZipBuilder()
         self.output_dir = output_dir
         self.is_cancelled = False
 
@@ -40,22 +41,12 @@ class StoryCrawler:
         start_chapter: int = 1,
         end_chapter: Optional[int] = None,
         max_workers: int = 3,
-        request_delay: float = 0.5,
-        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+        request_delay: float = 0.3,
+        progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        create_individual_zip: bool = True
     ) -> Dict[str, Any]:
         """
-        Crawl a novel from URL and save into a Word document.
-        
-        progress_callback receives dict:
-        {
-            "status": "fetching_info" | "crawling_chapters" | "saving_doc" | "done" | "error",
-            "story_title": str,
-            "current": int,
-            "total": int,
-            "percentage": float,
-            "current_chapter_title": str,
-            "message": str
-        }
+        Crawl a novel from URL and package into a story-transfer .zip archive.
         """
         self.is_cancelled = False
         start_time = time.time()
@@ -80,25 +71,36 @@ class StoryCrawler:
 
         # 1. Fetch story page
         try:
-            html = self.fetcher.fetch(url)
+            page_html = self.fetcher.fetch(url)
         except Exception as e:
             _notify("error", f"Không thể tải trang truyện: {e}")
             raise
 
-        story_info = handler.extract_story_info(html, url)
+        try:
+            story_info = handler.extract_story_info(page_html, url)
+        except Exception as e:
+            _notify("error", str(e))
+            raise
+
         self._current_story_title = story_info.title
-        _notify("fetching_info", f"Tìm thấy truyện: '{story_info.title}' (Tác giả: {story_info.author})")
+        _notify("fetching_info", f"Tìm thấy truyện: '{story_info.title}' (ID: {story_info.original_id})")
 
         # 2. Extract chapters
         _notify("fetching_info", "Đang trích xuất danh sách chương...")
-        chapter_items = handler.extract_chapter_list(html, url, self.fetcher)
+        chapter_items = handler.extract_chapter_list(page_html, url, self.fetcher)
 
         # Fallback: if no chapter list found, maybe the URL is already a single chapter URL
         if not chapter_items:
             _notify("fetching_info", "Không thấy danh sách chương, thử chế độ duyệt chương tiếp...")
-            first_chap = handler.extract_chapter_content(html, url, self.cleaner)
+            first_chap = handler.extract_chapter_content(page_html, url, self.cleaner)
             if first_chap and first_chap.paragraphs:
-                chapter_items = [ChapterItem(index=1, title=first_chap.title, url=url)]
+                chapter_items = [ChapterItem(
+                    index=1,
+                    title=first_chap.title,
+                    url=url,
+                    slug=first_chap.slug,
+                    date=first_chap.date
+                )]
 
         if not chapter_items:
             err_msg = "Không tìm thấy chương nào từ đường link này. Vui lòng kiểm tra lại link hoặc thử link chương 1."
@@ -125,23 +127,26 @@ class StoryCrawler:
         downloaded_chapters: List[Optional[ChapterContent]] = [None] * total_to_crawl
         completed_count = 0
 
-        # Helper to fetch and parse single chapter
         def _fetch_one_chapter(pos_idx: int, item: ChapterItem) -> tuple[int, ChapterContent]:
             if self.is_cancelled:
                 raise InterruptedError("Crawl cancelled by user.")
 
             chap_html = self.fetcher.fetch(item.url, referer=url)
             content = handler.extract_chapter_content(chap_html, item.url, self.cleaner)
-            # Ensure title matches chapter list if extracted title is generic
+
+            content.number = item.index
             if not content.title or content.title == "Chương không tiêu đề":
                 content.title = item.title
+            if not content.slug and item.slug:
+                content.slug = item.slug
+            if item.date and not content.date:
+                content.date = item.date
 
             if request_delay > 0:
                 time.sleep(request_delay)
 
             return pos_idx, content
 
-        # Concurrency mode or Sequential
         if max_workers > 1 and total_to_crawl > 1:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
@@ -168,12 +173,15 @@ class StoryCrawler:
                         )
                     except Exception as e:
                         logger.error(f"Error crawling chapter '{item.title}': {e}")
-                        # Create a placeholder indicating missing chapter
                         pos_idx = selected_items.index(item)
+                        err_text = f"[Lỗi tải chương: {e}]"
                         downloaded_chapters[pos_idx] = ChapterContent(
                             title=item.title,
                             url=item.url,
-                            paragraphs=[f"[Lỗi tải chương: {e}]"]
+                            paragraphs=[err_text],
+                            html_content=f"<p>{html.escape(err_text)}</p>",
+                            number=item.index,
+                            slug=item.slug or f"chuong-{item.index}"
                         )
                         completed_count += 1
                         _notify(
@@ -184,7 +192,6 @@ class StoryCrawler:
                             item.title
                         )
         else:
-            # Sequential mode
             for i, item in enumerate(selected_items):
                 if self.is_cancelled:
                     break
@@ -193,10 +200,14 @@ class StoryCrawler:
                     downloaded_chapters[pos_idx] = content
                 except Exception as e:
                     logger.error(f"Error crawling chapter '{item.title}': {e}")
+                    err_text = f"[Lỗi tải chương: {e}]"
                     downloaded_chapters[i] = ChapterContent(
                         title=item.title,
                         url=item.url,
-                        paragraphs=[f"[Lỗi tải chương: {e}]"]
+                        paragraphs=[err_text],
+                        html_content=f"<p>{html.escape(err_text)}</p>",
+                        number=item.index,
+                        slug=item.slug or f"chuong-{item.index}"
                     )
                 completed_count += 1
                 cur_title = downloaded_chapters[i].title if downloaded_chapters[i] else item.title
@@ -212,31 +223,84 @@ class StoryCrawler:
             _notify("error", "Đã hủy quá trình crawler theo yêu cầu của bạn.")
             return {"status": "cancelled", "story_title": story_info.title}
 
-        # Filter out any Nones
         final_chapters = [c for c in downloaded_chapters if c is not None]
 
-        # 5. Compile into Word file
-        _notify("saving_doc", f"Đang tổng hợp {len(final_chapters)} chương vào file Word (.docx)...", total_to_crawl, total_to_crawl)
+        # 4b. Sequential 'next_url' continuation fallback:
+        # If the user did not cap end_chapter (or cap was not reached) and the last crawled chapter
+        # points to a valid unvisited next_url (e.g. when starting from a Chapter 1 URL or a site
+        # that only renders partial chapters on the main page), follow next_url until the final chapter.
+        visited_chap_urls = {url.rstrip("/")}
+        for item in chapter_items:
+            visited_chap_urls.add(item.url.rstrip("/"))
+        for ch in final_chapters:
+            visited_chap_urls.add(ch.url.rstrip("/"))
 
-        docx_path = self.doc_builder.build_story_document(
-            story_info=story_info,
-            chapters=final_chapters,
-            output_dir=self.output_dir
-        )
+        while final_chapters and not self.is_cancelled:
+            if end_chapter and len(final_chapters) >= (end_chapter - start_idx + 1):
+                break
+            last_chap = final_chapters[-1]
+            nxt = last_chap.next_url
+            if not nxt or nxt.rstrip("/") in visited_chap_urls:
+                break
+            visited_chap_urls.add(nxt.rstrip("/"))
+            try:
+                nxt_html = self.fetcher.fetch(nxt, referer=last_chap.url)
+                nxt_content = handler.extract_chapter_content(nxt_html, nxt, self.cleaner)
+                if not nxt_content or len(nxt_content.paragraphs) < 2:
+                    break
+                nxt_num = (last_chap.number or len(final_chapters)) + 1
+                nxt_content.number = nxt_num
+                final_chapters.append(nxt_content)
+                total_now = len(final_chapters)
+                _notify(
+                    "crawling_chapters",
+                    f"Đã tải tiếp ({total_now}): {nxt_content.title}",
+                    total_now,
+                    total_now,
+                    nxt_content.title
+                )
+                if request_delay > 0:
+                    time.sleep(request_delay)
+            except Exception as e:
+                logger.debug(f"Stopped following next_url {nxt}: {e}")
+                break
+
+        # 5. Package into Story-Transfer ZIP file
+        zip_path = ""
+        zip_size_kb = 0.0
+        zip_size_mb = 0.0
+        if create_individual_zip:
+            _notify("saving_zip", f"Đang đóng gói {len(final_chapters)} chương vào file ZIP (story-transfer)...", total_to_crawl, total_to_crawl)
+            zip_path = self.zip_builder.build_story_zip(
+                story_info=story_info,
+                chapters=final_chapters,
+                output_dir=self.output_dir
+            )
+            size_bytes = os.path.getsize(zip_path)
+            zip_size_kb = round(size_bytes / 1024, 1)
+            zip_size_mb = round(size_bytes / (1024 * 1024), 2)
 
         elapsed = round(time.time() - start_time, 1)
-        doc_size_mb = round(os.path.getsize(docx_path) / (1024 * 1024), 2)
 
         result = {
             "status": "success",
             "story_title": story_info.title,
+            "original_id": story_info.original_id,
             "author": story_info.author,
             "chapters_crawled": len(final_chapters),
-            "file_path": docx_path,
-            "file_name": os.path.basename(docx_path),
-            "file_size_mb": doc_size_mb,
+            "file_path": zip_path,
+            "file_name": os.path.basename(zip_path) if zip_path else "",
+            "file_size_kb": zip_size_kb,
+            "file_size_mb": zip_size_mb,
             "elapsed_seconds": elapsed,
-            "message": f"Thành công! Đã lưu {len(final_chapters)} chương vào file Word: {os.path.basename(docx_path)} ({doc_size_mb} MB) trong {elapsed}s."
+            "story_info": story_info,
+            "chapters": final_chapters,
+            "message": (
+                f"Thành công! Đã đóng gói {len(final_chapters)} chương vào file ZIP: "
+                f"{os.path.basename(zip_path)} ({zip_size_kb} KB) trong {elapsed}s."
+                if zip_path else
+                f"Đã tải xong {len(final_chapters)} chương của '{story_info.title}' trong {elapsed}s."
+            )
         }
 
         _notify("done", result["message"], len(final_chapters), len(final_chapters))

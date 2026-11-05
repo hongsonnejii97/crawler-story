@@ -1,32 +1,32 @@
 """
-FastAPI Server & Web API for Story Novel Crawler.
-Provides real-time crawling monitoring, batch queue management, ad filtering, and docx downloads.
+FastAPI Server & Web API for Story Novel Crawler (Story-Transfer ZIP Exporter).
+Provides real-time crawling monitoring, batch queue management, ad filtering, and ZIP package downloads.
 """
 import os
 import sys
-import time
+import json
+import zipfile
 import subprocess
 import threading
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, UploadFile, File
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from core.fetcher import Fetcher
 from core.cleaner import ContentCleaner
-from core.doc_builder import DocBuilder
+from core.zip_builder import ZipBuilder
 from core.crawler import StoryCrawler
 from core.config_manager import load_config, save_config
+from core.site_handlers.base import StoryInfo, ChapterContent
 
-# Ensure UTF-8 output on Windows
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
 
-app = FastAPI(title="Novel Story Crawler To Word", version="1.0.0")
+app = FastAPI(title="Novel Story Crawler To Story-Transfer ZIP", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,7 +39,6 @@ app.add_middleware(
 OUTPUT_DIR = os.path.abspath("output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Global Crawler State
 class CrawlerState:
     def __init__(self):
         self.lock = threading.Lock()
@@ -52,7 +51,7 @@ class CrawlerState:
         self.total_chapters = 0
         self.current_chapter_title = ""
         self.percentage = 0.0
-        self.status = "idle"  # idle, running, finished, error, cancelled
+        self.status = "idle"
         self.logs: List[Dict[str, str]] = []
         self.completed_files: List[Dict[str, Any]] = []
         self.active_crawler: Optional[StoryCrawler] = None
@@ -91,7 +90,7 @@ class CrawlerState:
                 "total_chapters": self.total_chapters,
                 "current_chapter_title": self.current_chapter_title,
                 "percentage": self.percentage,
-                "logs": self.logs[-60:],  # return latest 60 logs
+                "logs": self.logs[-60:],
                 "completed_files": self.completed_files
             }
 
@@ -103,9 +102,7 @@ class CrawlRequest(BaseModel):
     end_chapter: Optional[int] = None
     max_workers: int = 3
     request_delay: float = 0.3
-    include_toc: bool = True
-    font_name: str = "Times New Roman"
-    font_size: int = 12
+    export_mode: str = "individual"  # "individual" | "batch" | "both"
 
 def _run_batch_crawler(request: CrawlRequest):
     cfg = load_config()
@@ -113,13 +110,14 @@ def _run_batch_crawler(request: CrawlRequest):
         custom_phrases=cfg.get("custom_ad_phrases", []),
         min_paragraph_length=1
     )
-    doc_builder = DocBuilder(
-        font_name=request.font_name,
-        font_size=request.font_size
-    )
+    zip_builder = ZipBuilder()
 
     state.reset(len(request.urls))
     state.log("info", f"Bắt đầu hàng đợi cào truyện ({len(request.urls)} đường link)...")
+
+    create_individual = request.export_mode in ("individual", "both")
+    create_batch = request.export_mode in ("batch", "both")
+    stories_bundle: List[Tuple[StoryInfo, List[ChapterContent]]] = []
 
     for idx, url in enumerate(request.urls, start=1):
         if state.should_cancel:
@@ -141,7 +139,7 @@ def _run_batch_crawler(request: CrawlRequest):
 
         crawler = StoryCrawler(
             cleaner=cleaner,
-            doc_builder=doc_builder,
+            zip_builder=zip_builder,
             output_dir=OUTPUT_DIR
         )
         state.active_crawler = crawler
@@ -169,19 +167,45 @@ def _run_batch_crawler(request: CrawlRequest):
                 end_chapter=request.end_chapter,
                 max_workers=request.max_workers,
                 request_delay=request.request_delay,
-                progress_callback=on_progress
+                progress_callback=on_progress,
+                create_individual_zip=create_individual
             )
             if result.get("status") == "success":
-                with state.lock:
-                    state.completed_files.append(result)
-                state.log("success", f"Đã hoàn thành truyện: '{result.get('story_title')}' -> {result.get('file_name')}")
+                s_info = result.pop("story_info", None)
+                s_chaps = result.pop("chapters", None)
+                if s_info and s_chaps:
+                    stories_bundle.append((s_info, s_chaps))
+
+                if create_individual and result.get("file_name"):
+                    with state.lock:
+                        state.completed_files.append(result)
+                    state.log("success", f"Đã xuất gói ZIP: '{result.get('story_title')}' -> {result.get('file_name')}")
         except Exception as e:
             state.log("error", f"Lỗi khi cào link {url}: {e}")
+
+    # Build combined batch ZIP if requested
+    if create_batch and stories_bundle and not state.should_cancel:
+        try:
+            state.log("info", f"Đang đóng gói gộp {len(stories_bundle)} truyện vào 1 file ZIP chung...")
+            batch_zip_path = zip_builder.build_batch_zip(stories_bundle, output_dir=OUTPUT_DIR)
+            size_kb = round(os.path.getsize(batch_zip_path) / 1024, 1)
+            batch_info = {
+                "status": "success",
+                "story_title": f"Gói Gộp {len(stories_bundle)} Truyện",
+                "file_path": batch_zip_path,
+                "file_name": os.path.basename(batch_zip_path),
+                "file_size_kb": size_kb
+            }
+            with state.lock:
+                state.completed_files.append(batch_info)
+            state.log("success", f"Đã tạo file ZIP gộp: {os.path.basename(batch_zip_path)} ({size_kb} KB)")
+        except Exception as e:
+            state.log("error", f"Lỗi khi tạo file ZIP gộp: {e}")
 
     with state.lock:
         state.is_running = False
         state.status = "finished" if not state.should_cancel else "cancelled"
-    state.log("info", f"Hoàn tất toàn bộ công việc! Tổng cộng {len(state.completed_files)} file Word đã tạo.")
+    state.log("info", f"Hoàn tất toàn bộ công việc! Tổng cộng {len(state.completed_files)} file ZIP đã tạo.")
 
 @app.post("/api/crawl")
 def start_crawl(request: CrawlRequest, background_tasks: BackgroundTasks):
@@ -215,11 +239,31 @@ def list_files():
     files = []
     if os.path.exists(OUTPUT_DIR):
         for fname in os.listdir(OUTPUT_DIR):
-            if fname.lower().endswith(".docx"):
+            if fname.lower().endswith(".zip"):
                 fpath = os.path.join(OUTPUT_DIR, fname)
                 st = os.stat(fpath)
+                story_title = ""
+                story_count = 1
+                chapters_count = 0
+                try:
+                    with zipfile.ZipFile(fpath, "r") as zf:
+                        if "manifest.json" in zf.namelist():
+                            mf = json.loads(zf.read("manifest.json").decode("utf-8"))
+                            story_count = mf.get("story_count", 1)
+                            s_files = mf.get("stories", [])
+                            if s_files and s_files[0] in zf.namelist():
+                                s_data = json.loads(zf.read(s_files[0]).decode("utf-8"))
+                                story_title = s_data.get("story", {}).get("title", "")
+                                chapters_count = len(s_data.get("chapters", []))
+                except Exception:
+                    pass
+
                 files.append({
                     "name": fname,
+                    "story_title": story_title,
+                    "story_count": story_count,
+                    "chapters_count": chapters_count,
+                    "size_kb": round(st.st_size / 1024, 1),
                     "size_mb": round(st.st_size / (1024 * 1024), 2),
                     "created_at": datetime.fromtimestamp(st.st_mtime).strftime("%d/%m/%Y %H:%M"),
                     "timestamp": st.st_mtime
@@ -233,7 +277,7 @@ def download_file(filename: str):
     file_path = os.path.join(OUTPUT_DIR, safe_name)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File không tồn tại.")
-    return FileResponse(file_path, filename=safe_name, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    return FileResponse(file_path, filename=safe_name, media_type="application/zip")
 
 @app.delete("/api/files/{filename}")
 def delete_file(filename: str):
@@ -287,7 +331,7 @@ def preview_clean(req: CleanPreviewRequest):
             return {
                 "title": content.title,
                 "paragraphs_count": len(content.paragraphs),
-                "paragraphs": content.paragraphs[:15]  # first 15 paragraphs
+                "paragraphs": content.paragraphs[:15]
             }
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Lỗi kiểm tra link: {e}")
@@ -301,7 +345,6 @@ def preview_clean(req: CleanPreviewRequest):
     else:
         raise HTTPException(status_code=400, detail="Cần cung cấp URL chương hoặc đoạn văn bản mẫu.")
 
-# Serve frontend HTML
 @app.get("/")
 def serve_index():
     index_path = os.path.join("web", "index.html")
@@ -309,4 +352,3 @@ def serve_index():
         with open(index_path, "r", encoding="utf-8") as f:
             return HTMLResponse(content=f.read())
     return HTMLResponse("<h1>Trang chủ Crawler đang chuẩn bị...</h1>")
-

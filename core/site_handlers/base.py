@@ -9,11 +9,15 @@ class ChapterItem:
     index: int
     title: str
     url: str
+    slug: str = ""
+    date: str = ""
 
 @dataclass
 class StoryInfo:
     title: str
     url: str
+    original_id: int = 0
+    slug: str = ""
     author: str = "Không rõ"
     description: str = ""
     cover_url: str = ""
@@ -24,6 +28,12 @@ class ChapterContent:
     title: str
     url: str
     paragraphs: List[str] = field(default_factory=list)
+    html_content: str = ""
+    original_id: int = 0
+    number: int = 1
+    slug: str = ""
+    date: str = ""
+    views: Optional[int] = None
     next_url: Optional[str] = None
 
 class BaseSiteHandler:
@@ -42,6 +52,5 @@ class BaseSiteHandler:
         raise NotImplementedError
 
     def extract_chapter_content(self, html: str, url: str, cleaner: Any) -> ChapterContent:
-        """Extract chapter title, cleaned content paragraphs, and next chapter URL."""
+        """Extract chapter title, cleaned content paragraphs/HTML, and next chapter URL."""
         raise NotImplementedError
-

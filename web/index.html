@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Công Cụ Cào Truyện Xuất Word Chuyên Nghiệp</title>
+  <title>Công Cụ Cào Truyện Đóng Gói ZIP Import Website (Story-Transfer)</title>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Lucide Icons -->
@@ -18,7 +18,6 @@
     .font-mono {
       font-family: 'JetBrains Mono', monospace;
     }
-    /* Custom Scrollbar */
     ::-webkit-scrollbar {
       width: 6px;
       height: 6px;
@@ -42,11 +41,11 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
       <div class="flex items-center space-x-3">
         <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-md shadow-indigo-100">
-          <i data-lucide="book-open" class="w-5 h-5"></i>
+          <i data-lucide="archive" class="w-5 h-5"></i>
         </div>
         <div>
-          <h1 class="text-lg font-bold text-slate-900 leading-tight">StoryNovel To Word Pro</h1>
-          <p class="text-xs text-slate-500 font-medium">Cào truyện đa nguồn • Lọc sạch quảng cáo • Xuất trọn bộ 1 File Word</p>
+          <h1 class="text-lg font-bold text-slate-900 leading-tight">Story-Transfer ZIP Crawler Pro</h1>
+          <p class="text-xs text-slate-500 font-medium">Cào truyện đa nguồn • Lọc sạch quảng cáo • Đóng gói ZIP chuẩn Import Website</p>
         </div>
       </div>
 
@@ -61,8 +60,8 @@
           <span>Bộ Lọc Quảng Cáo</span>
         </button>
         <button id="tab-btn-files" onclick="switchTab('files')" class="px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all flex items-center space-x-2 text-slate-600 hover:text-slate-900">
-          <i data-lucide="folder-down" class="w-4 h-4"></i>
-          <span>Thư Viện Word (<span id="files-count-badge">0</span>)</span>
+          <i data-lucide="folder-archive" class="w-4 h-4"></i>
+          <span>Thư Viện ZIP (<span id="files-count-badge">0</span>)</span>
         </button>
       </nav>
     </div>
@@ -80,9 +79,9 @@
           <div>
             <h2 class="text-base font-bold text-slate-900 flex items-center space-x-2">
               <i data-lucide="link-2" class="w-5 h-5 text-indigo-600"></i>
-              <span>Danh Sách Link Truyện Cần Cào</span>
+              <span>Danh Sách Link Truyện Cần Cào & Đóng Gói ZIP</span>
             </h2>
-            <p class="text-xs text-slate-500 mt-1">Hỗ trợ dán cùng lúc nhiều link (mỗi dòng 1 link). Tool sẽ tự động xử lý tuần tự từng truyện vào từng file Word riêng biệt.</p>
+            <p class="text-xs text-slate-500 mt-1">Hỗ trợ dán cùng lúc nhiều link (mỗi dòng 1 link). Xuất gói <code class="bg-slate-100 px-1 rounded text-indigo-600">story-transfer-*.zip</code> gồm <code class="bg-slate-100 px-1 rounded">manifest.json</code> và <code class="bg-slate-100 px-1 rounded">stories/story-*.json</code> để import thẳng vào website.</p>
           </div>
           <div class="flex items-center space-x-2">
             <label class="cursor-pointer px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg flex items-center space-x-1.5 transition">
@@ -101,9 +100,9 @@
 
         <!-- URL Textarea -->
         <div>
-          <textarea id="url-input" rows="4" placeholder="Dán danh sách link truyện tại đây, ví dụ:&#10;https://wetruyen.com/bat-ai-thanh-hon.1381/&#10;https://sstruyen.net/truyen/cung-chieu-vo-nho-troi-ban&#10;https://truyenfull.vn/tien-nghich/" class="w-full rounded-xl border border-slate-300 p-3.5 text-sm font-mono focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition resize-y"></textarea>
+          <textarea id="url-input" rows="4" placeholder="Dán danh sách link truyện tại đây, ví dụ:&#10;https://thaonguyen1.giangsonnhuhoa.com/truyen/2311/&#10;https://thaonguyen.giangsonnhuhoa.com/truyen/1600/&#10;https://wetruyen.com/bat-ai-thanh-hon.1381/" class="w-full rounded-xl border border-slate-300 p-3.5 text-sm font-mono focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition resize-y"></textarea>
           <div class="flex justify-between items-center text-xs text-slate-400 mt-1.5">
-            <span>Tự động nhận diện TruyenFull, WeTruyen, DTruyen, SSTruyen, TangThuVien & bộ bóc tách thông minh cho mọi web.</span>
+            <span>Tự động trích xuất ID, tiêu đề, giới thiệu, danh sách chương, nội dung HTML &lt;p&gt; sạch quảng cáo theo chuẩn story-transfer v1.0.</span>
             <span id="detected-urls-count" class="font-semibold text-slate-600">0 link được phát hiện</span>
           </div>
         </div>
@@ -112,7 +111,7 @@
         <div class="border-t border-slate-100 pt-5">
           <button onclick="toggleAdvancedSettings()" class="text-xs font-bold text-slate-700 flex items-center space-x-2 hover:text-indigo-600 transition">
             <i data-lucide="sliders-horizontal" class="w-4 h-4 text-indigo-500"></i>
-            <span>Tùy chỉnh cấu hình cào & định dạng file Word</span>
+            <span>Tùy chỉnh cấu hình cào & chế độ đóng gói ZIP</span>
             <i id="adv-arrow" data-lucide="chevron-down" class="w-3.5 h-3.5 transition-transform"></i>
           </button>
 
@@ -150,21 +149,14 @@
               </div>
             </div>
 
-            <!-- Word Typography -->
+            <!-- ZIP Export Mode -->
             <div>
-              <label class="block text-xs font-bold text-slate-700 mb-1">Font & Mục lục Word</label>
-              <div class="flex items-center space-x-2">
-                <select id="cfg-font" class="w-2/3 text-xs bg-white border border-slate-300 rounded-lg p-2">
-                  <option value="Times New Roman" selected>Times New Roman</option>
-                  <option value="Calibri">Calibri</option>
-                  <option value="Georgia">Georgia</option>
-                  <option value="Arial">Arial</option>
-                </select>
-                <label class="flex items-center space-x-1 cursor-pointer">
-                  <input id="cfg-include-toc" type="checkbox" checked class="rounded text-indigo-600 focus:ring-0">
-                  <span class="text-xs text-slate-600 font-medium">Mục lục</span>
-                </label>
-              </div>
+              <label class="block text-xs font-bold text-slate-700 mb-1">Chế độ xuất file ZIP</label>
+              <select id="cfg-export-mode" class="w-full text-xs bg-white border border-slate-300 rounded-lg p-2 focus:ring-indigo-500">
+                <option value="individual" selected>Mỗi truyện 1 file ZIP riêng</option>
+                <option value="batch">Gộp tất cả vào 1 file ZIP duy nhất</option>
+                <option value="both">Xuất cả ZIP lẻ và ZIP gộp</option>
+              </select>
             </div>
           </div>
         </div>
@@ -173,7 +165,7 @@
         <div class="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
           <div class="text-xs text-slate-500 flex items-center space-x-2">
             <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            <span>Bộ lọc quảng cáo & rác thông minh đang BẬT.</span>
+            <span>Chuẩn định dạng <strong class="text-slate-700">story-transfer v1.0 (plugin v1.4.6)</strong> • Lọc sạch quảng cáo.</span>
           </div>
 
           <div class="flex items-center space-x-3 w-full sm:w-auto">
@@ -183,7 +175,7 @@
             </button>
             <button id="btn-start" onclick="startCrawl()" class="flex-1 sm:flex-none px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white text-xs sm:text-sm font-bold shadow-md shadow-indigo-200 transition flex items-center justify-center space-x-2">
               <i data-lucide="play" class="w-4 h-4 fill-current"></i>
-              <span>Bắt Đầu Cào Truyện & Xuất Word</span>
+              <span>Bắt Đầu Cào & Đóng Gói ZIP</span>
             </button>
           </div>
         </div>
@@ -243,7 +235,7 @@
             <i data-lucide="shield-alert" class="w-5 h-5 text-indigo-600"></i>
             <span>Cấu Hình Bộ Lọc Quảng Cáo & Watermark</span>
           </h2>
-          <p class="text-xs text-slate-500 mt-1">Hệ thống tự động loại bỏ các thẻ quảng cáo ẩn, link donate, nhóm telegram, watermark dịch giả để giữ nguyên 100% nội dung truyện sạch đẹp.</p>
+          <p class="text-xs text-slate-500 mt-1">Hệ thống tự động loại bỏ các thẻ quảng cáo ẩn, Ad-Inserter, link donate, nhóm telegram, watermark dịch giả trước khi đóng gói vào JSON/ZIP.</p>
         </div>
 
         <!-- Built-in feature cards -->
@@ -254,7 +246,7 @@
             </div>
             <div>
               <h4 class="text-xs font-bold text-slate-900">Xóa Mã HTML Quảng Cáo</h4>
-              <p class="text-xs text-slate-500 mt-0.5">Tự động xóa sạch thẻ &lt;script&gt;, &lt;ins class="adsbygoogle"&gt;, banner, iframe, và các khối qc xen giữa các đoạn văn.</p>
+              <p class="text-xs text-slate-500 mt-0.5">Tự động xóa sạch thẻ &lt;script&gt;, &lt;ins&gt;, khối Ad-Inserter (.code-block, .ai-viewport), banner, iframe xen giữa các đoạn văn.</p>
             </div>
           </div>
           <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 flex items-start space-x-3">
@@ -279,10 +271,7 @@
             </button>
           </div>
 
-          <!-- Keyword Badges List -->
-          <div id="keywords-badge-container" class="flex flex-wrap gap-2 pt-2">
-            <!-- Rendered dynamically -->
-          </div>
+          <div id="keywords-badge-container" class="flex flex-wrap gap-2 pt-2"></div>
 
           <div class="flex justify-end pt-2">
             <button onclick="saveAdConfig()" class="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm">
@@ -295,17 +284,15 @@
         <!-- Live Ad Cleaner Sandbox -->
         <div class="border-t border-slate-100 pt-5 space-y-4">
           <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Thử Nghiệm Lọc Nội Dung (Sandbox)</h3>
-          <p class="text-xs text-slate-500">Dán link 1 chương hoặc đoạn văn bản bất kỳ để xem trước kết quả lọc sạch quảng cáo ngay lập tức:</p>
+          <p class="text-xs text-slate-500">Dán link 1 chương bất kỳ để xem trước kết quả lọc sạch quảng cáo ngay lập tức:</p>
           <div class="flex items-center space-x-2">
-            <input id="preview-url-input" type="text" placeholder="Dán link 1 chương truyện (ví dụ: https://wetruyen.com/bat-ai-thanh-hon/chuong-1.html)" class="flex-1 text-xs border border-slate-300 rounded-xl p-2.5 focus:border-indigo-500">
+            <input id="preview-url-input" type="text" placeholder="Dán link 1 chương truyện (ví dụ: https://thaonguyen1.giangsonnhuhoa.com/2311/chuong/st12311-chuong-2/)" class="flex-1 text-xs border border-slate-300 rounded-xl p-2.5 focus:border-indigo-500">
             <button onclick="testCleanPreview()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition flex items-center space-x-1">
               <i data-lucide="search" class="w-3.5 h-3.5"></i>
               <span>Kiểm Tra Thử</span>
             </button>
           </div>
-          <div id="preview-result-box" class="hidden bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs space-y-2 max-h-72 overflow-y-auto">
-            <!-- Preview results here -->
-          </div>
+          <div id="preview-result-box" class="hidden bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs space-y-2 max-h-72 overflow-y-auto"></div>
         </div>
       </div>
     </div>
@@ -316,10 +303,10 @@
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <h2 class="text-base font-bold text-slate-900 flex items-center space-x-2">
-              <i data-lucide="folder-check" class="w-5 h-5 text-indigo-600"></i>
-              <span>Thư Viện Truyện Đã Xuất File Word (.docx)</span>
+              <i data-lucide="folder-archive" class="w-5 h-5 text-indigo-600"></i>
+              <span>Thư Viện Gói ZIP Đã Xuất (story-transfer)</span>
             </h2>
-            <p class="text-xs text-slate-500 mt-1">Tất cả file Word đã được lưu an toàn tại thư mục <code class="bg-slate-100 px-1 py-0.5 rounded text-indigo-700">output/</code> trên máy tính của bạn.</p>
+            <p class="text-xs text-slate-500 mt-1">Tất cả file <code class="bg-slate-100 px-1 py-0.5 rounded text-indigo-700">.zip</code> đã được lưu tại thư mục <code class="bg-slate-100 px-1 py-0.5 rounded text-indigo-700">output/</code>, sẵn sàng để upload import vào website.</p>
           </div>
           <div class="flex items-center space-x-2">
             <button onclick="openOutputFolder()" class="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold rounded-xl transition flex items-center space-x-1.5 shadow-sm">
@@ -338,7 +325,8 @@
           <table class="w-full text-left text-xs border-collapse">
             <thead>
               <tr class="border-b border-slate-200 text-slate-400 font-semibold uppercase tracking-wider">
-                <th class="py-3 px-4">Tên File Word (.docx)</th>
+                <th class="py-3 px-4">Tên File ZIP</th>
+                <th class="py-3 px-4">Thông Tin Truyện</th>
                 <th class="py-3 px-4">Dung Lượng</th>
                 <th class="py-3 px-4">Thời Gian Tạo</th>
                 <th class="py-3 px-4 text-right">Thao Tác</th>
@@ -346,7 +334,7 @@
             </thead>
             <tbody id="files-table-body" class="divide-y divide-slate-100">
               <tr>
-                <td colspan="4" class="py-8 text-center text-slate-400">Đang tải danh sách file...</td>
+                <td colspan="5" class="py-8 text-center text-slate-400">Đang tải danh sách file...</td>
               </tr>
             </tbody>
           </table>
@@ -358,7 +346,7 @@
 
   <!-- Footer -->
   <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-400">
-    <p>Novel Story Crawler To Word &bull; Dành cho nhu cầu lưu trữ và đọc truyện offline không quảng cáo.</p>
+    <p>Story-Transfer ZIP Crawler Pro &bull; Xuất gói chuẩn manifest.json + stories/story-*.json để Import vào Website WordPress.</p>
   </footer>
 
   <!-- Notification Toast -->
@@ -368,29 +356,23 @@
   </div>
 
   <script>
-    // State
     let pollInterval = null;
     let customKeywords = [];
 
-    // Initialize
     document.addEventListener("DOMContentLoaded", () => {
       lucide.createIcons();
       loadKeywordsConfig();
       fetchFileList();
       checkExistingJob();
 
-      // Detect URL input count
       document.getElementById("url-input").addEventListener("input", updateUrlCount);
     });
 
     function showToast(msg, type = "info") {
       const toast = document.getElementById("toast");
       const toastMsg = document.getElementById("toast-msg");
-      const toastIcon = document.getElementById("toast-icon");
-
       toastMsg.innerText = msg;
       toast.classList.remove("translate-y-20", "opacity-0", "pointer-events-none");
-
       setTimeout(() => {
         toast.classList.add("translate-y-20", "opacity-0", "pointer-events-none");
       }, 3500);
@@ -429,7 +411,7 @@
     }
 
     function insertSampleUrl() {
-      const sample = "https://wetruyen.com/bat-ai-thanh-hon.1381/";
+      const sample = "https://thaonguyen1.giangsonnhuhoa.com/truyen/2311/";
       const input = document.getElementById("url-input");
       if (input.value.trim()) {
         input.value += "\n" + sample;
@@ -457,7 +439,6 @@
       reader.readAsText(file);
     }
 
-    // Crawl Execution
     async function startCrawl() {
       const rawText = document.getElementById("url-input").value;
       const urls = rawText.split("\n").map(l => l.trim()).filter(l => l.startsWith("http"));
@@ -472,8 +453,7 @@
       const startChap = parseInt(document.getElementById("cfg-start-chap").value) || 1;
       const endChapVal = document.getElementById("cfg-end-chap").value.trim();
       const endChap = endChapVal ? parseInt(endChapVal) : null;
-      const fontName = document.getElementById("cfg-font").value;
-      const includeToc = document.getElementById("cfg-include-toc").checked;
+      const exportMode = document.getElementById("cfg-export-mode").value;
 
       const payload = {
         urls: urls,
@@ -481,9 +461,7 @@
         end_chapter: endChap,
         max_workers: workers,
         request_delay: delay,
-        include_toc: includeToc,
-        font_name: fontName,
-        font_size: 12
+        export_mode: exportMode
       };
 
       try {
@@ -499,7 +477,7 @@
           return;
         }
 
-        showToast("Đã khởi động tiến trình cào truyện!");
+        showToast("Đã khởi động tiến trình cào truyện & đóng gói ZIP!");
         document.getElementById("btn-start").disabled = true;
         document.getElementById("btn-cancel").disabled = false;
         startPolling();
@@ -540,30 +518,26 @@
         const resp = await fetch("/api/progress");
         const data = await resp.json();
 
-        // Update progress bar
         const pct = data.percentage || 0;
         document.getElementById("metric-percentage").innerText = `${pct}%`;
         document.getElementById("progress-bar-fill").style.width = `${pct}%`;
 
-        // Story label
         if (data.total_stories > 0) {
           document.getElementById("metric-story").innerText = `Truyện (${data.current_story_idx}/${data.total_stories}): ${data.current_story_title || 'Đang phân tích...'}`;
         }
 
-        // Chapters
         document.getElementById("metric-chapter-detail").innerText = `Đã tải: ${data.current_chapter} / ${data.total_chapters} chương`;
         document.getElementById("metric-current-chap-name").innerText = data.current_chapter_title ? `Đang xử lý: ${data.current_chapter_title}` : '';
 
-        // Status badge
         const badge = document.getElementById("badge-status");
         if (data.is_running) {
           badge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-700 animate-pulse uppercase tracking-wider";
           badge.innerText = "Đang cào...";
-          document.getElementById("progress-subtitle").innerText = "Hệ thống đang tải dữ liệu và làm sạch văn bản...";
+          document.getElementById("progress-subtitle").innerText = "Hệ thống đang tải dữ liệu và đóng gói ZIP...";
         } else if (data.status === "finished") {
           badge.className = "px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 uppercase tracking-wider";
           badge.innerText = "Hoàn tất!";
-          document.getElementById("progress-subtitle").innerText = "Đã hoàn thành toàn bộ công việc cào truyện!";
+          document.getElementById("progress-subtitle").innerText = "Đã hoàn thành toàn bộ công việc đóng gói ZIP!";
           document.getElementById("btn-start").disabled = false;
           document.getElementById("btn-cancel").disabled = true;
           clearInterval(pollInterval);
@@ -577,9 +551,7 @@
           clearInterval(pollInterval);
         }
 
-        // Logs
         renderLogs(data.logs || []);
-
       } catch (err) {
         console.error("Polling error:", err);
       }
@@ -606,10 +578,9 @@
 
     function escapeHtml(text) {
       const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-      return text.replace(/[&<>"']/g, m => map[m]);
+      return String(text || "").replace(/[&<>"']/g, m => map[m]);
     }
 
-    // Files Library
     async function fetchFileList() {
       try {
         const resp = await fetch("/api/files");
@@ -619,29 +590,35 @@
 
         const tbody = document.getElementById("files-table-body");
         if (files.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="4" class="py-12 text-center text-slate-400">Chưa có file Word nào trong thư mục output/. Hãy dán link và bắt đầu cào truyện nhé!</td></tr>`;
+          tbody.innerHTML = `<tr><td colspan="5" class="py-12 text-center text-slate-400">Chưa có file ZIP nào trong thư mục output/. Hãy dán link và bắt đầu cào truyện nhé!</td></tr>`;
           return;
         }
 
-        tbody.innerHTML = files.map(f => `
-          <tr class="hover:bg-slate-50 transition">
-            <td class="py-3 px-4 font-semibold text-slate-900 flex items-center space-x-2">
-              <i data-lucide="file-text" class="w-4 h-4 text-indigo-600 shrink-0"></i>
-              <span class="truncate max-w-sm sm:max-w-md">${escapeHtml(f.name)}</span>
-            </td>
-            <td class="py-3 px-4 text-slate-600 font-medium">${f.size_mb} MB</td>
-            <td class="py-3 px-4 text-slate-500">${f.created_at}</td>
-            <td class="py-3 px-4 text-right space-x-2">
-              <a href="/api/download/${encodeURIComponent(f.name)}" class="inline-flex items-center space-x-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg transition">
-                <i data-lucide="download" class="w-3.5 h-3.5"></i>
-                <span>Tải Word</span>
-              </a>
-              <button onclick="deleteFile('${encodeURIComponent(f.name)}')" class="inline-flex items-center space-x-1 px-2.5 py-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition" title="Xóa file">
-                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-              </button>
-            </td>
-          </tr>
-        `).join("");
+        tbody.innerHTML = files.map(f => {
+          const infoBadge = f.story_count > 1
+            ? `<span class="px-2 py-0.5 bg-violet-100 text-violet-700 rounded font-bold">${f.story_count} truyện</span>`
+            : `<span class="text-slate-600">${escapeHtml(f.story_title || '1 truyện')} (${f.chapters_count} chương)</span>`;
+          return `
+            <tr class="hover:bg-slate-50 transition">
+              <td class="py-3 px-4 font-semibold text-slate-900 flex items-center space-x-2">
+                <i data-lucide="file-archive" class="w-4 h-4 text-indigo-600 shrink-0"></i>
+                <span class="font-mono">${escapeHtml(f.name)}</span>
+              </td>
+              <td class="py-3 px-4 max-w-md truncate">${infoBadge}</td>
+              <td class="py-3 px-4 text-slate-600 font-medium">${f.size_kb} KB</td>
+              <td class="py-3 px-4 text-slate-500">${f.created_at}</td>
+              <td class="py-3 px-4 text-right space-x-2">
+                <a href="/api/download/${encodeURIComponent(f.name)}" class="inline-flex items-center space-x-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg transition">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                  <span>Tải ZIP</span>
+                </a>
+                <button onclick="deleteFile('${encodeURIComponent(f.name)}')" class="inline-flex items-center space-x-1 px-2.5 py-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition" title="Xóa file">
+                  <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                </button>
+              </td>
+            </tr>
+          `;
+        }).join("");
 
         lucide.createIcons();
       } catch (err) {
@@ -663,17 +640,16 @@
     }
 
     async function deleteFile(filename) {
-      if (!confirm(`Bạn có chắc chắn muốn xóa file này không?`)) return;
+      if (!confirm(`Bạn có chắc chắn muốn xóa file ZIP này không?`)) return;
       try {
         await fetch(`/api/files/${filename}`, { method: "DELETE" });
-        showToast("Đã xóa file.");
+        showToast("Đã xóa file ZIP.");
         fetchFileList();
       } catch (e) {
         showToast("Lỗi khi xóa: " + e, "error");
       }
     }
 
-    // Ad Config
     async function loadKeywordsConfig() {
       try {
         const resp = await fetch("/api/config");
@@ -766,4 +742,3 @@
   </script>
 </body>
 </html>
-

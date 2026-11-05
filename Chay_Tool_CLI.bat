@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 title Story Novel Crawler - CLI
 
 echo ===================================================================
-echo     CONG CU CAO TRUYEN XUAT FILE WORD - CLI RUNNER
+echo     CONG CU CAO TRUYEN DONG GOI ZIP - CLI RUNNER
 echo ===================================================================
 echo.
 
