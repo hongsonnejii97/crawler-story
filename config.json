@@ -1,9 +1,7 @@
 {
   "max_workers": 3,
   "request_delay": 0.3,
-  "include_toc": true,
-  "font_name": "Times New Roman",
-  "font_size": 12,
+  "export_mode": "individual",
   "filter_html_ads": true,
   "filter_text_ads": true,
   "custom_ad_phrases": [
@@ -15,6 +13,15 @@
     "mời bạn tham gia group",
     "chúc bạn đọc truyện vui vẻ",
     "tải app để đọc",
-    "Mời Quý độc giả CLICK vào liên kết hoặc ảnh bên dưới mở ứng dụng Shopee, sau đó quay trở lại để tiếp tục đọc toàn bộ chương truyện! MonkeyD và đội ngũ Editor xin chân thành cảm ơn!"
-  ]
+    "Mời Quý độc giả CLICK vào liên kết hoặc ảnh bên dưới mở ứng dụng Shopee, sau đó quay trở lại để tiếp tục đọc toàn bộ chương truyện! MonkeyD và đội ngũ Editor xin chân thành cảm ơn!",
+    "Mời Quý độc giả CLICK vào liên kết bên dưới và",
+    "Lưu ý: Quảng Cáo trên chỉ xuất hiện 1 lần trong ngày, mong Quý độc giả ủng hộ.",
+    "Chương trước",
+    "Chương sau",
+    "Prev",
+    "Next"
+  ],
+  "include_toc": true,
+  "font_name": "Times New Roman",
+  "font_size": 12
 }
