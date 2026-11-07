@@ -3,9 +3,11 @@ Configuration Manager for crawler settings and ad filters.
 """
 import os
 import json
+import tempfile
 from typing import Dict, Any
 
 CONFIG_FILE = "config.json"
+TMP_CONFIG_FILE = os.path.join(tempfile.gettempdir(), "story_crawler_config.json")
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "max_workers": 3,
@@ -26,19 +28,24 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 def load_config() -> Dict[str, Any]:
-    """Load configuration from config.json, fallback to defaults."""
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                config = dict(DEFAULT_CONFIG)
-                config.update(data)
-                return config
-        except Exception:
-            pass
-    return dict(DEFAULT_CONFIG)
+    """Load configuration from config.json (and /tmp overlay on serverless), fallback to defaults."""
+    config = dict(DEFAULT_CONFIG)
+    for path in (CONFIG_FILE, TMP_CONFIG_FILE):
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        config.update(data)
+            except Exception:
+                pass
+    return config
 
 def save_config(new_config: Dict[str, Any]):
-    """Save configuration to config.json."""
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(new_config, f, ensure_ascii=False, indent=2)
+    """Save configuration to config.json, falling back to /tmp on read-only serverless file systems."""
+    try:
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(new_config, f, ensure_ascii=False, indent=2)
+    except OSError:
+        with open(TMP_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(new_config, f, ensure_ascii=False, indent=2)

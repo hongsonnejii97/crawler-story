@@ -10,11 +10,39 @@ import uuid
 import zlib
 import html
 import zipfile
+import tempfile
 import urllib.parse
 from datetime import datetime
 from typing import List, Dict, Any, Tuple
 
 from .site_handlers.base import StoryInfo, ChapterContent
+
+def resolve_writable_output_dir(preferred_dir: str = "output") -> str:
+    """
+    Resolve a writable directory for storing generated .zip files.
+    On local machines, uses ./output.
+    On read-only serverless platforms (Vercel / AWS Lambda), automatically falls back to /tmp/output.
+    """
+    is_serverless = bool(
+        os.environ.get("VERCEL")
+        or os.environ.get("AWS_LAMBDA_FUNCTION_NAME")
+        or os.environ.get("NOW_REGION")
+    )
+    if not is_serverless:
+        try:
+            abs_pref = os.path.abspath(preferred_dir)
+            os.makedirs(abs_pref, exist_ok=True)
+            test_file = os.path.join(abs_pref, ".write_test")
+            with open(test_file, "w", encoding="utf-8") as tf:
+                tf.write("ok")
+            os.remove(test_file)
+            return abs_pref
+        except OSError:
+            pass
+
+    tmp_out = os.path.join(tempfile.gettempdir(), "output")
+    os.makedirs(tmp_out, exist_ok=True)
+    return tmp_out
 
 def _get_base_site_url(url: str) -> str:
     """Return scheme://netloc/ from a URL."""
@@ -134,7 +162,7 @@ class ZipBuilder:
         Package a single story and its chapters into a story-transfer .zip archive.
         Returns the absolute path of the created .zip file.
         """
-        os.makedirs(output_dir, exist_ok=True)
+        target_dir = resolve_writable_output_dir(output_dir)
 
         original_id, story_data = self.create_story_json_data(story_info, chapters)
         inner_json_path = f"stories/story-{original_id}.json"
@@ -142,7 +170,7 @@ class ZipBuilder:
         manifest_data = self.create_manifest_data(source_site, [inner_json_path])
 
         filename = f"story-transfer-{original_id}.zip"
-        file_path = os.path.join(output_dir, filename)
+        file_path = os.path.join(target_dir, filename)
 
         manifest_bytes = json.dumps(manifest_data, ensure_ascii=False, indent=4).encode("utf-8")
         story_bytes = json.dumps(story_data, ensure_ascii=False, indent=4).encode("utf-8")
@@ -162,7 +190,7 @@ class ZipBuilder:
         Package multiple stories into a single combined story-transfer .zip archive.
         Returns the absolute path of the created .zip file.
         """
-        os.makedirs(output_dir, exist_ok=True)
+        target_dir = resolve_writable_output_dir(output_dir)
         if not stories_bundle:
             raise ValueError("Không có truyện nào để đóng gói ZIP.")
 
@@ -188,7 +216,7 @@ class ZipBuilder:
 
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")
         filename = f"story-transfer-batch-{len(stories_bundle)}stories-{ts}.zip"
-        file_path = os.path.join(output_dir, filename)
+        file_path = os.path.join(target_dir, filename)
 
         with zipfile.ZipFile(file_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("manifest.json", manifest_bytes)

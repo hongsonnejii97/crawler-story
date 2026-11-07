@@ -5,6 +5,7 @@ Provides real-time crawling monitoring, batch queue management, ad filtering, an
 import os
 import sys
 import json
+import base64
 import zipfile
 import subprocess
 import threading
@@ -12,13 +13,13 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Tuple
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from core.fetcher import Fetcher
 from core.cleaner import ContentCleaner
-from core.zip_builder import ZipBuilder
+from core.zip_builder import ZipBuilder, resolve_writable_output_dir
 from core.crawler import StoryCrawler
 from core.config_manager import load_config, save_config
 from core.site_handlers.base import StoryInfo, ChapterContent
@@ -36,8 +37,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-OUTPUT_DIR = os.path.abspath("output")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+OUTPUT_DIR = resolve_writable_output_dir("output")
+MEMORY_ZIP_CACHE: Dict[str, Dict[str, Any]] = {}
+
+def _register_zip_in_memory(
+    zip_path: str,
+    story_title: str,
+    story_count: int = 1,
+    chapters_count: int = 0
+) -> Optional[str]:
+    """Store generated ZIP bytes in memory and return base64 string for serverless browser persistence."""
+    if not zip_path or not os.path.exists(zip_path):
+        return None
+    try:
+        fname = os.path.basename(zip_path)
+        with open(zip_path, "rb") as f:
+            raw_bytes = f.read()
+        now_ts = datetime.now().timestamp()
+        size_kb = round(len(raw_bytes) / 1024, 1)
+        size_mb = round(len(raw_bytes) / (1024 * 1024), 2)
+        b64_str = base64.b64encode(raw_bytes).decode("ascii") if len(raw_bytes) <= 15 * 1024 * 1024 else None
+
+        MEMORY_ZIP_CACHE[fname] = {
+            "name": fname,
+            "story_title": story_title,
+            "story_count": story_count,
+            "chapters_count": chapters_count,
+            "size_kb": size_kb,
+            "size_mb": size_mb,
+            "created_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
+            "timestamp": now_ts,
+            "bytes": raw_bytes
+        }
+        # Keep memory cache bounded to 20 most recent archives
+        if len(MEMORY_ZIP_CACHE) > 20:
+            oldest_key = min(MEMORY_ZIP_CACHE.keys(), key=lambda k: MEMORY_ZIP_CACHE[k]["timestamp"])
+            MEMORY_ZIP_CACHE.pop(oldest_key, None)
+        return b64_str
+    except Exception:
+        return None
 
 class CrawlerState:
     def __init__(self):
@@ -177,6 +215,14 @@ def _run_batch_crawler(request: CrawlRequest):
                     stories_bundle.append((s_info, s_chaps))
 
                 if create_individual and result.get("file_name"):
+                    b64_data = _register_zip_in_memory(
+                        zip_path=result.get("file_path", ""),
+                        story_title=result.get("story_title", ""),
+                        story_count=1,
+                        chapters_count=result.get("chapters_crawled", 0)
+                    )
+                    if b64_data:
+                        result["zip_base64"] = b64_data
                     with state.lock:
                         state.completed_files.append(result)
                     state.log("success", f"Đã xuất gói ZIP: '{result.get('story_title')}' -> {result.get('file_name')}")
@@ -189,13 +235,24 @@ def _run_batch_crawler(request: CrawlRequest):
             state.log("info", f"Đang đóng gói gộp {len(stories_bundle)} truyện vào 1 file ZIP chung...")
             batch_zip_path = zip_builder.build_batch_zip(stories_bundle, output_dir=OUTPUT_DIR)
             size_kb = round(os.path.getsize(batch_zip_path) / 1024, 1)
+            total_chaps = sum(len(chaps) for _, chaps in stories_bundle)
+            b64_batch = _register_zip_in_memory(
+                zip_path=batch_zip_path,
+                story_title=f"Gói Gộp {len(stories_bundle)} Truyện",
+                story_count=len(stories_bundle),
+                chapters_count=total_chaps
+            )
             batch_info = {
                 "status": "success",
                 "story_title": f"Gói Gộp {len(stories_bundle)} Truyện",
+                "story_count": len(stories_bundle),
+                "chapters_crawled": total_chaps,
                 "file_path": batch_zip_path,
                 "file_name": os.path.basename(batch_zip_path),
                 "file_size_kb": size_kb
             }
+            if b64_batch:
+                batch_info["zip_base64"] = b64_batch
             with state.lock:
                 state.completed_files.append(batch_info)
             state.log("success", f"Đã tạo file ZIP gộp: {os.path.basename(batch_zip_path)} ({size_kb} KB)")
@@ -237,6 +294,7 @@ def get_progress():
 @app.get("/api/files")
 def list_files():
     files = []
+    seen_names = set()
     if os.path.exists(OUTPUT_DIR):
         for fname in os.listdir(OUTPUT_DIR):
             if fname.lower().endswith(".zip"):
@@ -258,6 +316,7 @@ def list_files():
                 except Exception:
                     pass
 
+                seen_names.add(fname)
                 files.append({
                     "name": fname,
                     "story_title": story_title,
@@ -268,6 +327,20 @@ def list_files():
                     "created_at": datetime.fromtimestamp(st.st_mtime).strftime("%d/%m/%Y %H:%M"),
                     "timestamp": st.st_mtime
                 })
+
+    for fname, meta in MEMORY_ZIP_CACHE.items():
+        if fname not in seen_names:
+            files.append({
+                "name": meta["name"],
+                "story_title": meta["story_title"],
+                "story_count": meta["story_count"],
+                "chapters_count": meta["chapters_count"],
+                "size_kb": meta["size_kb"],
+                "size_mb": meta["size_mb"],
+                "created_at": meta["created_at"],
+                "timestamp": meta["timestamp"]
+            })
+
     files.sort(key=lambda x: x["timestamp"], reverse=True)
     return {"files": files}
 
@@ -275,16 +348,28 @@ def list_files():
 def download_file(filename: str):
     safe_name = os.path.basename(filename)
     file_path = os.path.join(OUTPUT_DIR, safe_name)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File không tồn tại.")
-    return FileResponse(file_path, filename=safe_name, media_type="application/zip")
+    if os.path.exists(file_path):
+        return FileResponse(file_path, filename=safe_name, media_type="application/zip")
+    if safe_name in MEMORY_ZIP_CACHE:
+        return Response(
+            content=MEMORY_ZIP_CACHE[safe_name]["bytes"],
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}"'}
+        )
+    raise HTTPException(status_code=404, detail="File không tồn tại.")
 
 @app.delete("/api/files/{filename}")
 def delete_file(filename: str):
     safe_name = os.path.basename(filename)
     file_path = os.path.join(OUTPUT_DIR, safe_name)
+    removed = False
     if os.path.exists(file_path):
         os.remove(file_path)
+        removed = True
+    if safe_name in MEMORY_ZIP_CACHE:
+        MEMORY_ZIP_CACHE.pop(safe_name, None)
+        removed = True
+    if removed:
         return {"status": "deleted", "filename": safe_name}
     raise HTTPException(status_code=404, detail="File không tồn tại.")
 

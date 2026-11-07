@@ -224,6 +224,15 @@
             <div class="text-slate-500">// Hệ thống sẵn sàng. Vui lòng nhập link và bấm Bắt Đầu.</div>
           </div>
         </div>
+
+        <!-- Quick Completed ZIP Downloads Box -->
+        <div id="completed-downloads-box" class="hidden border-t border-slate-100 pt-4 space-y-2.5">
+          <div class="text-xs font-bold text-emerald-700 flex items-center space-x-1.5">
+            <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-600"></i>
+            <span>File ZIP Vừa Đóng Gói Xong (Sẵn sàng tải về):</span>
+          </div>
+          <div id="completed-downloads-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
+        </div>
       </div>
     </div>
 
@@ -358,6 +367,92 @@
   <script>
     let pollInterval = null;
     let customKeywords = [];
+    const clientZipStore = new Map();
+
+    function base64ToBlobUrl(b64Data) {
+      const byteCharacters = atob(b64Data);
+      const byteArrays = [];
+      for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+        const slice = byteCharacters.slice(offset, offset + 512);
+        const byteNumbers = new Array(slice.length);
+        for (let i = 0; i < slice.length; i++) {
+          byteNumbers[i] = slice.charCodeAt(i);
+        }
+        byteArrays.push(new Uint8Array(byteNumbers));
+      }
+      const blob = new Blob(byteArrays, { type: "application/zip" });
+      return URL.createObjectURL(blob);
+    }
+
+    function syncCompletedFilesToClientStore(completedFiles) {
+      if (!Array.isArray(completedFiles) || completedFiles.length === 0) return;
+      const nowStr = new Date().toLocaleString("vi-VN", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", year: "numeric" });
+      completedFiles.forEach(item => {
+        const fname = item.file_name;
+        if (!fname) return;
+        const existing = clientZipStore.get(fname);
+        let blobUrl = existing ? existing.blobUrl : null;
+        if (!blobUrl && item.zip_base64) {
+          try {
+            blobUrl = base64ToBlobUrl(item.zip_base64);
+          } catch (e) {
+            console.error("Failed to decode zip_base64:", e);
+          }
+        }
+        clientZipStore.set(fname, {
+          name: fname,
+          story_title: item.story_title || "1 truyện",
+          story_count: item.story_count || 1,
+          chapters_count: item.chapters_crawled || 0,
+          size_kb: item.file_size_kb || 0,
+          created_at: existing ? existing.created_at : nowStr,
+          timestamp: existing ? existing.timestamp : Date.now() / 1000,
+          blobUrl: blobUrl
+        });
+      });
+      renderCompletedQuickDownloads(completedFiles);
+    }
+
+    function renderCompletedQuickDownloads(completedFiles) {
+      const box = document.getElementById("completed-downloads-box");
+      const list = document.getElementById("completed-downloads-list");
+      if (!Array.isArray(completedFiles) || completedFiles.length === 0) {
+        box.classList.add("hidden");
+        return;
+      }
+      box.classList.remove("hidden");
+      list.innerHTML = completedFiles.map(item => {
+        const fname = item.file_name || "";
+        return `
+          <div class="flex items-center justify-between p-3 rounded-xl bg-emerald-50/70 border border-emerald-200">
+            <div class="min-w-0 pr-3">
+              <div class="text-xs font-bold text-slate-900 font-mono truncate">${escapeHtml(fname)}</div>
+              <div class="text-[11px] text-slate-600 truncate">${escapeHtml(item.story_title || '')} (${item.chapters_crawled || 0} chương • ${item.file_size_kb || 0} KB)</div>
+            </div>
+            <button onclick="downloadZipFile('${encodeURIComponent(fname)}')" class="shrink-0 inline-flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm transition">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i>
+              <span>Tải ZIP</span>
+            </button>
+          </div>
+        `;
+      }).join("");
+      lucide.createIcons();
+    }
+
+    function downloadZipFile(encodedName) {
+      const fname = decodeURIComponent(encodedName);
+      const cached = clientZipStore.get(fname);
+      if (cached && cached.blobUrl) {
+        const a = document.createElement("a");
+        a.href = cached.blobUrl;
+        a.download = fname;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        return;
+      }
+      window.location.href = `/api/download/${encodeURIComponent(fname)}`;
+    }
 
     document.addEventListener("DOMContentLoaded", () => {
       lucide.createIcons();
@@ -552,6 +647,9 @@
         }
 
         renderLogs(data.logs || []);
+        if (data.completed_files && data.completed_files.length > 0) {
+          syncCompletedFilesToClientStore(data.completed_files);
+        }
       } catch (err) {
         console.error("Polling error:", err);
       }
@@ -585,7 +683,17 @@
       try {
         const resp = await fetch("/api/files");
         const data = await resp.json();
-        const files = data.files || [];
+        const serverFiles = data.files || [];
+        const mergedMap = new Map();
+
+        serverFiles.forEach(f => mergedMap.set(f.name, f));
+        clientZipStore.forEach((val, key) => {
+          if (!mergedMap.has(key)) {
+            mergedMap.set(key, val);
+          }
+        });
+
+        const files = Array.from(mergedMap.values()).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
         document.getElementById("files-count-badge").innerText = files.length;
 
         const tbody = document.getElementById("files-table-body");
@@ -608,10 +716,10 @@
               <td class="py-3 px-4 text-slate-600 font-medium">${f.size_kb} KB</td>
               <td class="py-3 px-4 text-slate-500">${f.created_at}</td>
               <td class="py-3 px-4 text-right space-x-2">
-                <a href="/api/download/${encodeURIComponent(f.name)}" class="inline-flex items-center space-x-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg transition">
+                <button onclick="downloadZipFile('${encodeURIComponent(f.name)}')" class="inline-flex items-center space-x-1 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg transition">
                   <i data-lucide="download" class="w-3.5 h-3.5"></i>
                   <span>Tải ZIP</span>
-                </a>
+                </button>
                 <button onclick="deleteFile('${encodeURIComponent(f.name)}')" class="inline-flex items-center space-x-1 px-2.5 py-1.5 text-slate-400 hover:text-rose-600 rounded-lg transition" title="Xóa file">
                   <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                 </button>
@@ -641,13 +749,13 @@
 
     async function deleteFile(filename) {
       if (!confirm(`Bạn có chắc chắn muốn xóa file ZIP này không?`)) return;
+      const decoded = decodeURIComponent(filename);
+      clientZipStore.delete(decoded);
       try {
         await fetch(`/api/files/${filename}`, { method: "DELETE" });
-        showToast("Đã xóa file ZIP.");
-        fetchFileList();
-      } catch (e) {
-        showToast("Lỗi khi xóa: " + e, "error");
-      }
+      } catch (e) {}
+      showToast("Đã xóa file ZIP.");
+      fetchFileList();
     }
 
     async function loadKeywordsConfig() {
