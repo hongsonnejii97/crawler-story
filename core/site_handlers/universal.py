@@ -247,6 +247,52 @@ def extract_full_description(soup: BeautifulSoup) -> str:
 
     return best_desc
 
+
+def _extract_chap_num(item: ChapterItem) -> Optional[float]:
+    """Extract numeric chapter index from chapter title or URL for ordering verification."""
+    m_title = re.search(r"(?:chương|chap|chapter|hồi|tiết|phần)\s*(\d+(?:\.\d+)?)", item.title, re.I)
+    if m_title:
+        try:
+            return float(m_title.group(1))
+        except ValueError:
+            pass
+
+    m_url = re.search(r"(?:chuong|chap|chapter|hoi)[-_/](\d+)(?:[-_.](\d+))?", item.url, re.I)
+    if m_url:
+        try:
+            if m_url.group(2):
+                return float(f"{m_url.group(1)}.{m_url.group(2)}")
+            return float(m_url.group(1))
+        except ValueError:
+            pass
+    return None
+
+
+def _normalize_chapter_order(chapters: List[ChapterItem]) -> List[ChapterItem]:
+    """
+    Detect if a website lists chapters in reverse/descending order (e.g. Chương 22 -> Chương 1)
+    or out-of-order across pages, and automatically sort them into ascending order (Chương 1 -> Chương N).
+    """
+    if len(chapters) < 2:
+        return chapters
+
+    nums = [_extract_chap_num(ch) for ch in chapters]
+    valid_pairs = [(idx, n) for idx, n in enumerate(nums) if n is not None]
+
+    if len(valid_pairs) >= 2 and len(valid_pairs) >= len(chapters) * 0.6:
+        # Case 1: All chapters have distinct detected chapter numbers
+        if len(valid_pairs) == len(chapters) and len(set(nums)) == len(chapters):
+            if nums != sorted(nums):
+                paired = sorted(zip(nums, range(len(chapters)), chapters), key=lambda x: (x[0], x[1]))
+                chapters = [p[2] for p in paired]
+        # Case 2: Chapters are listed newest-first (descending order)
+        elif valid_pairs[0][1] > valid_pairs[-1][1]:
+            chapters = list(reversed(chapters))
+
+    for i, chap in enumerate(chapters, start=1):
+        chap.index = i
+    return chapters
+
 class UniversalSiteHandler(BaseSiteHandler):
     name = "Universal Auto-Detector"
 
@@ -344,11 +390,25 @@ class UniversalSiteHandler(BaseSiteHandler):
 
         def _harvest_links(curr_soup: BeautifulSoup) -> List[ChapterItem]:
             items = []
-            # Priority 1: inner chapter list containers (avoid outer wrappers that include pagination)
-            containers = curr_soup.select(
-                ".chapter-list, #danh-sach-chuong, #list-chapter, .list-chapter, "
-                ".list-chapters, .chapters, #chapters, .table-list, ul.list-chap, .box-chap"
+            # Priority 1: dedicated main-story chapter containers (including Madara .listing-chapters_wrap / ul.version-chap)
+            primary_containers = curr_soup.select(
+                ".listing-chapters_wrap, ul.version-chap, #manga-chapters-holder, "
+                ".es-chapters .chapter-list, #danh-sach-chuong, #list-chapter"
             )
+            if primary_containers:
+                containers = primary_containers
+            else:
+                # Priority 2: general chapter containers, excluding sidebar/related story widgets
+                raw_containers = curr_soup.select(
+                    ".chapter-list, .list-chapter, .list-chapters, .chapters, "
+                    "#chapters, .table-list, ul.list-chap, .box-chap"
+                )
+                containers = [
+                    c for c in raw_containers
+                    if not c.find_parent(["aside"])
+                    and not c.find_parent(class_=re.compile(r"(sidebar|widget|related|popular|c-sidebar|latest-posters)", re.I))
+                ]
+
             candidate_links = []
             if containers:
                 for c in containers:
@@ -489,10 +549,7 @@ class UniversalSiteHandler(BaseSiteHandler):
                         except Exception:
                             pass
 
-        for i, chap in enumerate(chapters, start=1):
-            chap.index = i
-
-        return chapters
+        return _normalize_chapter_order(chapters)
 
     def extract_chapter_content(self, html: str, url: str, cleaner: Any) -> ChapterContent:
         soup = BeautifulSoup(html, "html.parser")

@@ -13,7 +13,8 @@ from .universal import (
     extract_chapter_views,
     check_for_coming_soon,
     _is_pagination_link,
-    extract_full_description
+    extract_full_description,
+    _normalize_chapter_order
 )
 
 class TruyenFullFamilyHandler(BaseSiteHandler):
@@ -144,10 +145,7 @@ class TruyenFullFamilyHandler(BaseSiteHandler):
                     break
                 current_p += 1
 
-        for i, chap in enumerate(chapters, start=1):
-            chap.index = i
-
-        return chapters
+        return _normalize_chapter_order(chapters)
 
     def extract_chapter_content(self, html: str, url: str, cleaner: Any) -> ChapterContent:
         soup = BeautifulSoup(html, "html.parser")
