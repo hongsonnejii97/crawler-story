@@ -128,6 +128,179 @@ def _is_pagination_link(a_tag: Tag, href: str) -> bool:
 
     return False
 
+def extract_full_description(soup: BeautifulSoup) -> str:
+    """
+    Extract the most complete story synopsis ('văn án') from a story page soup.
+    Evaluates all candidate containers, unwraps anti-crawl <span class="fake"> tags,
+    removes UI buttons/ads, and picks the longest valid synopsis.
+    """
+    desc_selectors = (
+        ".group-box .content, #text-box.summary-content, #text-box, .summary-content, "
+        ".desc-text, .story-desc, .content-desc, .book-intro, .novel-desc, "
+        ".story-introduction, .van-an, #van-an, .gioi-thieu, #gioi-thieu, "
+        '[itemprop="description"], .box-description, .tab-summary, '
+        ".description, .desc, .summary, .intro, #description, .entry-content, .post-content"
+    )
+    ui_noise_regex = re.compile(
+        r"^(xem thêm|thu gọn|đọc tiếp|đọc từ đầu|đọc tập mới|đọc ngay|mục lục|danh sách chương|\.{2,}|…+)$",
+        re.I
+    )
+
+    best_desc = ""
+    best_len = 0
+
+    for dc in soup.select(desc_selectors):
+        # Skip containers that wrap the chapter list itself
+        if dc.select_one(".chapter-list, #list-chapter, #danh-sach-chuong, .list-chapter"):
+            # Make a copy and remove the chapter list before checking if synopsis remains
+            dc_copy = BeautifulSoup(str(dc), "html.parser")
+            for ch_box in dc_copy.select(".es-chapters, .chapter-list, #list-chapter, #danh-sach-chuong, .list-chapter, .chapter-pagination"):
+                ch_box.decompose()
+        else:
+            dc_copy = BeautifulSoup(str(dc), "html.parser")
+
+        # Remove non-content & ad elements inside description
+        for noise in dc_copy.select(
+            "script, style, ins, iframe, button, .summary-overlay, .btn-toggle-modern, "
+            ".es-story-actions, .code-block, [class*='ai-viewport'], [class*='ai-insert'], "
+            ".er-partner-info, [data-affiliate-click], a.es-btn"
+        ):
+            noise.decompose()
+
+        # Unwrap anti-copy <span class="fake" data-before="..."> tags
+        for sp in dc_copy.select("span.fake, span[data-before], span[data-after]"):
+            before_txt = sp.get("data-before", "")
+            after_txt = sp.get("data-after", "")
+            if not sp.get_text().strip() and (before_txt or after_txt):
+                sp.string = f"{before_txt}{after_txt}"
+            sp.unwrap()
+
+        for br in dc_copy.find_all("br"):
+            br.replace_with("\n")
+
+        paras: List[str] = []
+        p_tags = dc_copy.find_all("p")
+        if p_tags:
+            for p in p_tags:
+                raw_p = p.get_text().replace("\xa0", " ")
+                for line in raw_p.splitlines():
+                    clean_line = re.sub(r"[ \t]+", " ", line).strip()
+                    if clean_line and not ui_noise_regex.match(clean_line):
+                        paras.append(clean_line)
+        else:
+            raw_txt = dc_copy.get_text("\n").replace("\xa0", " ")
+            for line in raw_txt.splitlines():
+                clean_line = re.sub(r"[ \t]+", " ", line).strip()
+                if clean_line and not ui_noise_regex.match(clean_line):
+                    paras.append(clean_line)
+
+        if paras:
+            candidate = "\r\n\r\n".join(paras)
+            cand_len = len(candidate)
+            if cand_len >= 25 and cand_len > best_len:
+                best_len = cand_len
+                best_desc = candidate
+
+    # Check meta og:description / description as fallback if longer
+    for meta in soup.select('meta[property="og:description"], meta[name="description"]'):
+        content = (meta.get("content") or "").replace("\xa0", " ").strip()
+        if content and not ui_noise_regex.match(content) and len(content) > best_len:
+            paras = [re.sub(r"[ \t]+", " ", l).strip() for l in content.splitlines() if l.strip()]
+            best_desc = "\r\n\r\n".join(paras)
+            best_len = len(best_desc)
+
+    return best_desc
+
+
+def enrich_description_from_first_chapter(
+    current_desc: str,
+    first_chap_paragraphs: List[str],
+    story_title: str = "",
+    min_target_chars: int = 750,
+    max_target_chars: int = 1500
+) -> str:
+    """
+    Ensure the story synopsis ('văn án') is complete and not just a few words.
+    When a source site leaves the story-page summary empty ('...'), truncated, or only puts 1-2 short
+    teaser sentences (< min_target_chars), automatically extracts or completes the synopsis using
+    the opening paragraphs of Chapter 1.
+    """
+    clean_curr = (current_desc or "").strip()
+    if clean_curr in ("...", "…"):
+        clean_curr = ""
+
+    # If the story page already has a full synopsis (>= min_target_chars) and isn't truncated with '...'
+    if len(clean_curr) >= min_target_chars and not clean_curr.endswith(("...", "…")):
+        return clean_curr
+
+    if not first_chap_paragraphs:
+        return clean_curr
+
+    section_marker_re = re.compile(
+        r"^(?:chương|hồi|chap|chapter|phần|tiết)\s+\d+(?:\s*[:.\-–—].*)?$|^(?:\d{1,2}[.)]?|\*{3,}|-{3,})$",
+        re.I
+    )
+    norm_title = re.sub(r"\s+", " ", (story_title or "")).strip().lower()
+
+    # Filter opening paragraphs from Chapter 1
+    ch1_paras: List[str] = []
+    char_count = 0
+
+    for idx, p in enumerate(first_chap_paragraphs[:30]):
+        txt = p.replace("\xa0", " ").strip()
+        if not txt:
+            continue
+        # Skip leading chapter/story title on paragraph 0-1
+        if idx <= 1 and (
+            txt.lower() == norm_title
+            or re.match(r"^(?:#[a-z]+\s*\d+\s*[-–—]?\s*)?(?:chương|chap|chapter|hồi|phần)\s+1\b", txt, re.I)
+        ):
+            continue
+
+        if section_marker_re.match(txt):
+            # If we hit a section divider (e.g. 'Chương 1: ...' or '1.') after already gathering a solid intro
+            if len(ch1_paras) >= 4 and char_count >= 400:
+                break
+            continue
+
+        ch1_paras.append(txt)
+        char_count += len(txt)
+        if char_count >= max_target_chars and len(ch1_paras) >= 6:
+            break
+
+    if not ch1_paras:
+        return clean_curr
+
+    ch1_desc = "\r\n\r\n".join(ch1_paras)
+
+    # Case 1: current_desc was empty or very tiny (< 80 chars)
+    if len(clean_curr) < 80:
+        return ch1_desc
+
+    # Case 2: Check if Chapter 1 already starts with the same text as current_desc (i.e. current_desc was a truncated excerpt)
+    curr_paras = [p.strip() for p in re.split(r"\r?\n+", clean_curr) if p.strip()]
+    first_curr_norm = re.sub(r"[^\w]", "", curr_paras[0].lower())[:40] if curr_paras else ""
+    ch1_joined_norm = re.sub(r"[^\w]", "", ch1_desc.lower())
+
+    if first_curr_norm and first_curr_norm in ch1_joined_norm:
+        return ch1_desc if len(ch1_desc) > len(clean_curr) else clean_curr
+
+    # Case 3: current_desc is a short intro block on the story page (e.g. 80-700 chars) and Chapter 1 continues right after it
+    combined_paras = list(curr_paras)
+    existing_norms = {re.sub(r"[^\w]", "", p.lower()) for p in curr_paras}
+    total_len = len(clean_curr)
+
+    for p in ch1_paras:
+        p_norm = re.sub(r"[^\w]", "", p.lower())
+        if p_norm and p_norm not in existing_norms:
+            combined_paras.append(p)
+            existing_norms.add(p_norm)
+            total_len += len(p)
+            if total_len >= max_target_chars:
+                break
+
+    return "\r\n\r\n".join(combined_paras)
+
 class UniversalSiteHandler(BaseSiteHandler):
     name = "Universal Auto-Detector"
 
@@ -177,23 +350,7 @@ class UniversalSiteHandler(BaseSiteHandler):
         author = re.sub(r"<[^>]+>", "", author).strip() or "Không rõ"
 
         # 3. Description Extraction
-        desc = ""
-        desc_containers = soup.select(
-            ".group-box .content, #text-box.summary-content, .summary-content, "
-            ".desc-text, .story-desc, .content-desc, .description, .desc, .summary, .intro, #description"
-        )
-        for dc in desc_containers:
-            raw_dc = dc.get_text("\n", strip=True)
-            if len(raw_dc) > 20:
-                paras = [line.strip() for line in raw_dc.splitlines() if line.strip()]
-                if paras:
-                    desc = "\r\n\r\n".join(paras)
-                    break
-
-        if not desc:
-            og_desc = soup.select_one('meta[property="og:description"], meta[name="description"]')
-            if og_desc and og_desc.get("content"):
-                desc = og_desc["content"].strip()
+        desc = extract_full_description(soup)
 
         # 4. Cover URL
         cover_url = ""

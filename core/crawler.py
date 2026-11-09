@@ -14,6 +14,7 @@ from .cleaner import ContentCleaner
 from .zip_builder import ZipBuilder
 from .site_handlers import get_handler_for_url
 from .site_handlers.base import StoryInfo, ChapterItem, ChapterContent
+from .site_handlers.universal import enrich_description_from_first_chapter
 
 logger = logging.getLogger("StoryCrawler")
 
@@ -264,6 +265,14 @@ class StoryCrawler:
             except Exception as e:
                 logger.debug(f"Stopped following next_url {nxt}: {e}")
                 break
+
+        # 4c. Ensure story synopsis ('văn án') is complete using Chapter 1 opening paragraphs if needed
+        if final_chapters:
+            story_info.description = enrich_description_from_first_chapter(
+                current_desc=story_info.description,
+                first_chap_paragraphs=final_chapters[0].paragraphs,
+                story_title=story_info.title
+            )
 
         # 5. Package into Story-Transfer ZIP file
         zip_path = ""

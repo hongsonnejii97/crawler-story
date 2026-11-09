@@ -12,7 +12,8 @@ from .universal import (
     extract_chapter_date,
     extract_chapter_views,
     check_for_coming_soon,
-    _is_pagination_link
+    _is_pagination_link,
+    extract_full_description
 )
 
 class TruyenFullFamilyHandler(BaseSiteHandler):
@@ -41,16 +42,7 @@ class TruyenFullFamilyHandler(BaseSiteHandler):
         author = author_tag.get_text(strip=True) if author_tag else "Không rõ"
 
         # Description (preserve multi-paragraph formatting separated by \r\n\r\n)
-        desc_tag = soup.select_one(".desc-text, .story-desc, .content-desc, .desc")
-        desc = ""
-        if desc_tag:
-            p_tags = desc_tag.find_all("p")
-            if p_tags:
-                paras = [p.get_text(strip=True) for p in p_tags if p.get_text(strip=True)]
-                desc = "\r\n\r\n".join(paras)
-            else:
-                raw_lines = [line.strip() for line in desc_tag.get_text("\n").splitlines() if line.strip()]
-                desc = "\r\n\r\n".join(raw_lines)
+        desc = extract_full_description(soup)
 
         # Cover
         cover_tag = soup.select_one(".books img, .book img, .thumb img, .story-info img")
