@@ -36,19 +36,45 @@ if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" (
     set "PY_EXE=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
     goto :FoundPython
 )
+if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
+    set "PY_EXE=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+    goto :FoundPython
+)
+if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+    set "PY_EXE=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+    goto :FoundPython
+)
 if exist "%PROGRAMFILES%\Python313\python.exe" (
     set "PY_EXE=%PROGRAMFILES%\Python313\python.exe"
+    goto :FoundPython
+)
+if exist "%PROGRAMFILES%\Python312\python.exe" (
+    set "PY_EXE=%PROGRAMFILES%\Python312\python.exe"
     goto :FoundPython
 )
 
 :FoundPython
 if "%PY_EXE%"=="" (
-    echo [ERROR] Khong tim thay Python hop le tren may tinh!
+    echo [ERROR] Khong tim thay Python hop le tren may tinh nay!
+    echo.
+    echo Huong dan:
+    echo 1. Vao https://www.python.org/downloads/ de tai Python ban moi nhat.
+    echo 2. Khi cai, NHO TICH CHON: "Add python.exe to PATH".
+    echo.
     pause
     exit /b 1
 )
 
 echo [*] Su dung Python: "%PY_EXE%"
+
+rem Kiem tra thu vien da cai chua
+"%PY_EXE%" -c "import requests, bs4, curl_cffi" >nul 2>nul
+if !ERRORLEVEL! neq 0 (
+    echo.
+    echo [*] Dang tu dong cai dat thu vien cho may moi...
+    "%PY_EXE%" -m pip install -r requirements.txt
+)
+
 echo.
 
 "%PY_EXE%" cli.py %*

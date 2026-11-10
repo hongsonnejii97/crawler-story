@@ -40,21 +40,53 @@ if exist "%LOCALAPPDATA%\Programs\Python\Python312\python.exe" (
     set "PY_EXE=%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
     goto :FoundPython
 )
+if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
+    set "PY_EXE=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+    goto :FoundPython
+)
 if exist "%PROGRAMFILES%\Python313\python.exe" (
     set "PY_EXE=%PROGRAMFILES%\Python313\python.exe"
+    goto :FoundPython
+)
+if exist "%PROGRAMFILES%\Python312\python.exe" (
+    set "PY_EXE=%PROGRAMFILES%\Python312\python.exe"
     goto :FoundPython
 )
 
 :FoundPython
 if "%PY_EXE%"=="" (
-    echo [ERROR] Khong tim thay Python hop le tren may tinh!
-    echo Vui long cai dat Python hoac kiem tra thu muc Laragon Python.
+    echo [ERROR] Khong tim thay Python hop le tren may tinh nay!
+    echo.
+    echo Huong dan cai dat Python cho may moi:
+    echo 1. Truy cap https://www.python.org/downloads/ va tai ban moi nhat.
+    echo 2. Khi cai dat, NHO TICH CHON: "Add python.exe to PATH" (rat quan trong).
+    echo 3. Sau khi cai dat xong, mo lai file Chay_Tool_Web.bat nay.
     echo.
     pause
     exit /b 1
 )
 
 echo [*] Su dung Python: "%PY_EXE%"
+
+rem Kiem tra xem da cai thu vien chua, neu chua thi tu dong cai
+"%PY_EXE%" -c "import uvicorn, fastapi, bs4, curl_cffi" >nul 2>nul
+if !ERRORLEVEL! neq 0 (
+    echo.
+    echo [*] Phat hien may nay chua cai dat cac thu vien can thiet.
+    echo [*] Dang tu dong cai dat thu vien tu requirements.txt, vui long cho 1-2 phut...
+    echo.
+    "%PY_EXE%" -m pip install -r requirements.txt
+    if !ERRORLEVEL! neq 0 (
+        echo.
+        echo [ERROR] Cai dat thu vien that bai! Vui long kiem tra ket noi Internet.
+        pause
+        exit /b 1
+    )
+    echo.
+    echo [*] Cai dat thu vien thanh cong!
+    echo.
+)
+
 echo [*] Dang khoi dong Web Server tai http://localhost:8000 ...
 echo [*] Trinh duyet se tu dong mo sau 2 giay.
 echo.
