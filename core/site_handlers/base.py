@@ -21,6 +21,7 @@ class StoryInfo:
     author: str = "Không rõ"
     description: str = ""
     cover_url: str = ""
+    story_code: str = ""
     chapters: List[ChapterItem] = field(default_factory=list)
 
 @dataclass

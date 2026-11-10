@@ -98,11 +98,29 @@
           </div>
         </div>
 
+        <!-- Story Code Input (Optional) -->
+        <div class="bg-indigo-50/60 border border-indigo-100 rounded-xl p-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div class="flex items-center space-x-2">
+              <span class="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
+                <i data-lucide="tag" class="w-4 h-4"></i>
+              </span>
+              <div>
+                <label for="story-code-input" class="text-xs font-bold text-slate-800">Mã truyện (Tùy chọn)</label>
+                <p class="text-[11px] text-slate-500">Tự động gắn mã vào đầu tên chương (ví dụ: <code class="text-indigo-600 font-semibold font-mono">#ST12435 - Chương 1</code>), đổi tiêu đề và slug truyện</p>
+              </div>
+            </div>
+            <div class="w-full sm:w-64">
+              <input id="story-code-input" type="text" placeholder="Ví dụ: #ST12435" class="w-full bg-white border border-indigo-200 rounded-lg px-3 py-1.5 text-xs font-mono font-semibold text-indigo-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 transition">
+            </div>
+          </div>
+        </div>
+
         <!-- URL Textarea -->
         <div>
-          <textarea id="url-input" rows="4" placeholder="Dán danh sách link truyện tại đây, ví dụ:&#10;https://thaonguyen1.giangsonnhuhoa.com/truyen/2311/&#10;https://thaonguyen.giangsonnhuhoa.com/truyen/1600/&#10;https://wetruyen.com/bat-ai-thanh-hon.1381/" class="w-full rounded-xl border border-slate-300 p-3.5 text-sm font-mono focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition resize-y"></textarea>
+          <textarea id="url-input" rows="4" placeholder="Dán danh sách link truyện tại đây (hỗ trợ kèm mã: Link | #MãTruyện), ví dụ:&#10;https://laophatgia2.fit/manga/sau-gio-bon-muoi-toi/ | #ST12435&#10;https://thaonguyen1.giangsonnhuhoa.com/truyen/2273/&#10;https://saytinh1.tieuthuyettinhyeu.com/truyen/148/ | #ST1148" class="w-full rounded-xl border border-slate-300 p-3.5 text-sm font-mono focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 transition resize-y"></textarea>
           <div class="flex justify-between items-center text-xs text-slate-400 mt-1.5">
-            <span>Tự động trích xuất ID, tiêu đề, giới thiệu, danh sách chương, nội dung HTML &lt;p&gt; sạch quảng cáo theo chuẩn story-transfer v1.0.</span>
+            <span>Hỗ trợ định dạng từng dòng: <code class="text-slate-600 font-mono">link | #MãTruyện</code> hoặc nhập 1 Mã truyện chung ở trên.</span>
             <span id="detected-urls-count" class="font-semibold text-slate-600">0 link được phát hiện</span>
           </div>
         </div>
@@ -501,8 +519,8 @@
 
     function updateUrlCount() {
       const text = document.getElementById("url-input").value;
-      const urls = text.split("\n").map(l => l.trim()).filter(l => l.startsWith("http"));
-      document.getElementById("detected-urls-count").innerText = `${urls.length} link được phát hiện`;
+      const lines = text.split("\n").map(l => l.trim()).filter(l => l.length > 0 && /https?:\/\//i.test(l));
+      document.getElementById("detected-urls-count").innerText = `${lines.length} link được phát hiện`;
     }
 
     function insertSampleUrl() {
@@ -536,7 +554,8 @@
 
     async function startCrawl() {
       const rawText = document.getElementById("url-input").value;
-      const urls = rawText.split("\n").map(l => l.trim()).filter(l => l.startsWith("http"));
+      const globalCode = (document.getElementById("story-code-input")?.value || "").trim();
+      const urls = rawText.split("\n").map(l => l.trim()).filter(l => l.length > 0 && /https?:\/\//i.test(l));
 
       if (urls.length === 0) {
         showToast("Vui lòng dán ít nhất 1 link truyện hợp lệ!", "error");
@@ -552,6 +571,7 @@
 
       const payload = {
         urls: urls,
+        story_code: globalCode,
         start_chapter: startChap,
         end_chapter: endChap,
         max_workers: workers,

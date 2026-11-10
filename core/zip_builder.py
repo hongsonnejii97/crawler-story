@@ -110,7 +110,7 @@ class ZipBuilder:
                 "uuid": story_uuid,
                 "original_id": original_id,
                 "title": story_info.title,
-                "slug": "",
+                "slug": story_info.slug or "",
                 "status": "publish",
                 "date": "",
                 "author": 0,
@@ -126,7 +126,12 @@ class ZipBuilder:
 
         return original_id, story_payload
 
-    def create_manifest_data(self, source_site: str, story_paths: List[str]) -> Dict[str, Any]:
+    def create_manifest_data(
+        self,
+        source_site: str,
+        story_paths: List[str],
+        has_slug: bool = False
+    ) -> Dict[str, Any]:
         """Build the dictionary for manifest.json."""
         return {
             "format": "story-transfer",
@@ -136,7 +141,7 @@ class ZipBuilder:
             "source_site": source_site,
             "story_count": len(story_paths),
             "fields": {
-                "slug": False,
+                "slug": bool(has_slug),
                 "content": True,
                 "status": False,
                 "date": False,
@@ -167,7 +172,11 @@ class ZipBuilder:
         original_id, story_data = self.create_story_json_data(story_info, chapters)
         inner_json_path = f"stories/story-{original_id}.json"
         source_site = _get_base_site_url(story_info.url)
-        manifest_data = self.create_manifest_data(source_site, [inner_json_path])
+        manifest_data = self.create_manifest_data(
+            source_site,
+            [inner_json_path],
+            has_slug=bool(story_info.slug)
+        )
 
         filename = f"story-transfer-{original_id}.zip"
         file_path = os.path.join(target_dir, filename)
@@ -211,7 +220,12 @@ class ZipBuilder:
             story_files_bytes.append((inner_path, story_bytes))
 
         source_site = _get_base_site_url(stories_bundle[0][0].url)
-        manifest_data = self.create_manifest_data(source_site, story_paths)
+        has_any_slug = any(bool(s[0].slug) for s in stories_bundle)
+        manifest_data = self.create_manifest_data(
+            source_site,
+            story_paths,
+            has_slug=has_any_slug
+        )
         manifest_bytes = json.dumps(manifest_data, ensure_ascii=False, indent=4).encode("utf-8")
 
         ts = datetime.now().strftime("%Y%m%d-%H%M%S")

@@ -23,6 +23,7 @@ from core.zip_builder import ZipBuilder, resolve_writable_output_dir
 from core.crawler import StoryCrawler
 from core.config_manager import load_config, save_config
 from core.site_handlers.base import StoryInfo, ChapterContent
+from core.site_handlers.universal import parse_url_and_code
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8")
@@ -134,8 +135,14 @@ class CrawlerState:
 
 state = CrawlerState()
 
+class StoryItemInput(BaseModel):
+    url: str
+    code: Optional[str] = ""
+
 class CrawlRequest(BaseModel):
-    urls: List[str]
+    urls: Optional[List[str]] = None
+    items: Optional[List[StoryItemInput]] = None
+    story_code: Optional[str] = ""
     start_chapter: int = 1
     end_chapter: Optional[int] = None
     max_workers: int = 3
@@ -150,14 +157,23 @@ def _run_batch_crawler(request: CrawlRequest):
     )
     zip_builder = ZipBuilder()
 
-    state.reset(len(request.urls))
-    state.log("info", f"Bắt đầu hàng đợi cào truyện ({len(request.urls)} đường link)...")
+    crawl_items: List[Tuple[str, str]] = []
+    if request.items:
+        crawl_items = [(it.url, it.code or "") for it in request.items]
+    else:
+        for raw in (request.urls or []):
+            u, c = parse_url_and_code(raw, default_code=request.story_code or "")
+            if u:
+                crawl_items.append((u, c))
+
+    state.reset(len(crawl_items))
+    state.log("info", f"Bắt đầu hàng đợi cào truyện ({len(crawl_items)} đường link)...")
 
     create_individual = request.export_mode in ("individual", "both")
     create_batch = request.export_mode in ("batch", "both")
     stories_bundle: List[Tuple[StoryInfo, List[ChapterContent]]] = []
 
-    for idx, url in enumerate(request.urls, start=1):
+    for idx, (url, story_code) in enumerate(crawl_items, start=1):
         if state.should_cancel:
             state.log("warning", "Quá trình đã bị hủy bởi người dùng.")
             break
@@ -173,7 +189,8 @@ def _run_batch_crawler(request: CrawlRequest):
             state.total_chapters = 0
             state.percentage = 0.0
 
-        state.log("info", f"[{idx}/{len(request.urls)}] Bắt đầu xử lý: {url}")
+        code_label = f" [Mã: {story_code}]" if story_code else ""
+        state.log("info", f"[{idx}/{len(crawl_items)}] Bắt đầu xử lý: {url}{code_label}")
 
         crawler = StoryCrawler(
             cleaner=cleaner,
@@ -206,7 +223,8 @@ def _run_batch_crawler(request: CrawlRequest):
                 max_workers=request.max_workers,
                 request_delay=request.request_delay,
                 progress_callback=on_progress,
-                create_individual_zip=create_individual
+                create_individual_zip=create_individual,
+                story_code=story_code
             )
             if result.get("status") == "success":
                 s_info = result.pop("story_info", None)
@@ -269,13 +287,25 @@ def start_crawl(request: CrawlRequest, background_tasks: BackgroundTasks):
     if state.is_running:
         raise HTTPException(status_code=400, detail="Một tác vụ cào truyện đang chạy. Vui lòng đợi hoặc bấm Dừng.")
 
-    valid_urls = [u.strip() for u in request.urls if u.strip().startswith("http")]
-    if not valid_urls:
+    parsed_queue: List[StoryItemInput] = []
+    if request.items:
+        for it in request.items:
+            u, c = parse_url_and_code(it.url, default_code=it.code or request.story_code or "")
+            if u:
+                parsed_queue.append(StoryItemInput(url=u, code=c))
+    elif request.urls:
+        for raw in request.urls:
+            u, c = parse_url_and_code(raw, default_code=request.story_code or "")
+            if u:
+                parsed_queue.append(StoryItemInput(url=u, code=c))
+
+    if not parsed_queue:
         raise HTTPException(status_code=400, detail="Vui lòng nhập ít nhất 1 link truyện hợp lệ (bắt đầu bằng http:// hoặc https://).")
 
-    request.urls = valid_urls
+    request.items = parsed_queue
+    request.urls = [it.url for it in parsed_queue]
     background_tasks.add_task(_run_batch_crawler, request)
-    return {"status": "started", "total_urls": len(valid_urls)}
+    return {"status": "started", "total_urls": len(parsed_queue)}
 
 @app.post("/api/cancel")
 def cancel_crawl():

@@ -14,6 +14,11 @@ from .cleaner import ContentCleaner
 from .zip_builder import ZipBuilder
 from .site_handlers import get_handler_for_url
 from .site_handlers.base import StoryInfo, ChapterItem, ChapterContent
+from .site_handlers.universal import (
+    slugify_vi,
+    format_story_title_with_code,
+    format_chapter_title_with_code
+)
 
 logger = logging.getLogger("StoryCrawler")
 
@@ -43,13 +48,15 @@ class StoryCrawler:
         max_workers: int = 3,
         request_delay: float = 0.3,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
-        create_individual_zip: bool = True
+        create_individual_zip: bool = True,
+        story_code: Optional[str] = ""
     ) -> Dict[str, Any]:
         """
         Crawl a novel from URL and package into a story-transfer .zip archive.
         """
         self.is_cancelled = False
         start_time = time.time()
+        clean_code = (story_code or "").strip()
 
         def _notify(status: str, msg: str, current: int = 0, total: int = 0, cur_title: str = ""):
             if progress_callback:
@@ -82,6 +89,11 @@ class StoryCrawler:
             _notify("error", str(e))
             raise
 
+        if clean_code:
+            story_info.story_code = clean_code
+            story_info.title = format_story_title_with_code(story_info.title, clean_code)
+            story_info.slug = slugify_vi(clean_code)
+
         self._current_story_title = story_info.title
         _notify("fetching_info", f"Tìm thấy truyện: '{story_info.title}' (ID: {story_info.original_id})")
 
@@ -106,6 +118,10 @@ class StoryCrawler:
             err_msg = "Không tìm thấy chương nào từ đường link này. Vui lòng kiểm tra lại link hoặc thử link chương 1."
             _notify("error", err_msg)
             raise ValueError(err_msg)
+
+        if clean_code:
+            for item in chapter_items:
+                item.title = format_chapter_title_with_code(item.title, item.index, clean_code)
 
         total_available = len(chapter_items)
         _notify("fetching_info", f"Tổng cộng phát hiện {total_available} chương.")
@@ -137,6 +153,8 @@ class StoryCrawler:
             content.number = item.index
             if not content.title or content.title == "Chương không tiêu đề":
                 content.title = item.title
+            if clean_code:
+                content.title = format_chapter_title_with_code(content.title, item.index, clean_code)
             if not content.slug and item.slug:
                 content.slug = item.slug
             if item.date and not content.date:
@@ -250,6 +268,8 @@ class StoryCrawler:
                     break
                 nxt_num = (last_chap.number or len(final_chapters)) + 1
                 nxt_content.number = nxt_num
+                if clean_code:
+                    nxt_content.title = format_chapter_title_with_code(nxt_content.title, nxt_num, clean_code)
                 final_chapters.append(nxt_content)
                 total_now = len(final_chapters)
                 _notify(
@@ -264,6 +284,11 @@ class StoryCrawler:
             except Exception as e:
                 logger.debug(f"Stopped following next_url {nxt}: {e}")
                 break
+
+        # Ensure all chapter titles adhere to story_code formatting
+        if clean_code:
+            for ch in final_chapters:
+                ch.title = format_chapter_title_with_code(ch.title, ch.number, clean_code)
 
         # 5. Package into Story-Transfer ZIP file
         zip_path = ""

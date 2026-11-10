@@ -7,7 +7,7 @@ import zlib
 import unicodedata
 import urllib.parse
 from datetime import datetime
-from typing import List, Optional, Any, Set
+from typing import List, Optional, Any, Set, Tuple
 from bs4 import BeautifulSoup, Tag
 from .base import BaseSiteHandler, StoryInfo, ChapterItem, ChapterContent
 
@@ -292,6 +292,113 @@ def _normalize_chapter_order(chapters: List[ChapterItem]) -> List[ChapterItem]:
     for i, chap in enumerate(chapters, start=1):
         chap.index = i
     return chapters
+
+
+def format_story_title_with_code(title: str, story_code: str) -> str:
+    """
+    Format story title by replacing any existing code prefix with the provided story_code.
+    Example:
+      title='#ST1148 - ĐÊM TRÚNG...', story_code='#ST12435'
+      -> '#ST12435 - ĐÊM TRÚNG...'
+    """
+    if not story_code:
+        return title
+    clean_code = story_code.strip().rstrip("-–—: ").strip()
+    if not clean_code:
+        return title
+    if not clean_code.startswith("#") and re.match(r"^[A-Za-z]{2,}\d+", clean_code):
+        clean_code = f"#{clean_code}"
+    clean_title = re.sub(
+        r"^(?:#[A-Za-z0-9_-]+(?:\s*\d+)?|[A-Za-z]{2,6}\s*\d+)\s*[-–—:\s]*\s*",
+        "",
+        title,
+        flags=re.IGNORECASE
+    ).strip()
+    if not clean_title:
+        clean_title = title.strip()
+    return f"{clean_code} - {clean_title}"
+
+
+def format_chapter_title_with_code(chap_title: str, chap_num: int, story_code: str) -> str:
+    """
+    Insert story_code before the chapter term ('Chương X').
+    Examples:
+      #TTY1 Chương 1 -> #ST12435 - Chương 1
+      Chương 1 -> #ST12435 - Chương 1
+      #STT143 - Chương 1 -> #ST12435 - Chương 1
+      Sáu giờ bốn mươi tối - Chương 22 -> #ST12435 - Chương 22
+      Chương 1: Mở đầu -> #ST12435 - Chương 1: Mở đầu
+    """
+    if not story_code:
+        return chap_title
+    clean_code = story_code.strip().rstrip("-–—: ").strip()
+    if not clean_code:
+        return chap_title
+    if not clean_code.startswith("#") and re.match(r"^[A-Za-z]{2,}\d+", clean_code):
+        clean_code = f"#{clean_code}"
+
+    m = re.search(r"\b(Chương|Chap|Chapter|Hồi)\s*(\d+(?:\.\d+)?)(.*)$", chap_title, re.IGNORECASE)
+    if m:
+        term = m.group(1).capitalize()
+        if term.lower() in ("chap", "chapter"):
+            term = "Chương"
+        num_str = m.group(2)
+        rest = m.group(3).strip()
+        if rest:
+            rest_m = re.match(r"^[:.\-–—\s]+(.*)$", rest)
+            if rest_m and rest_m.group(1):
+                sep = ": " if rest.startswith(":") else " - "
+                return f"{clean_code} - {term} {num_str}{sep}{rest_m.group(1).strip()}"
+        return f"{clean_code} - {term} {num_str}"
+
+    m_num = re.match(r"^\s*(?:(?:#[A-Za-z0-9_-]+|[A-Za-z]{2,6}\s*\d+)\s*[-–—:]\s*)?(\d+)(.*)$", chap_title)
+    if m_num:
+        num_str = m_num.group(1)
+        rest = m_num.group(2).strip()
+        if rest:
+            rest_m = re.match(r"^[:.\-–—\s]+(.*)$", rest)
+            if rest_m and rest_m.group(1):
+                sep = ": " if rest.startswith(":") else " - "
+                return f"{clean_code} - Chương {num_str}{sep}{rest_m.group(1).strip()}"
+        return f"{clean_code} - Chương {num_str}"
+
+    if chap_num and chap_num > 0:
+        return f"{clean_code} - Chương {chap_num}"
+
+    return f"{clean_code} - {chap_title}"
+
+
+def parse_url_and_code(raw_line: str, default_code: str = "") -> Tuple[str, str]:
+    """
+    Parse a line containing a novel URL and an optional story code.
+    Supports formats:
+      - https://site.com/truyen/1/ | #ST12435
+      - https://site.com/truyen/1/ #ST12435
+      - #ST12435 | https://site.com/truyen/1/
+      - https://site.com/truyen/1/
+    """
+    raw_line = raw_line.strip()
+    if not raw_line:
+        return "", ""
+
+    m = re.search(r"(https?://[^\s|,;\"'>]+)", raw_line)
+    if not m:
+        return "", ""
+
+    url = m.group(1).strip()
+    rest = (raw_line[:m.start()] + " " + raw_line[m.end():]).strip()
+    code = re.sub(r"^[|\-–—,;: \t]+|[|\-–—,;: \t]+$", "", rest).strip()
+
+    if not code:
+        code = default_code.strip() if default_code else ""
+
+    if code:
+        code = code.rstrip("-–—: ").strip()
+        if not code.startswith("#") and re.match(r"^[A-Za-z]{2,}\d+", code):
+            code = f"#{code}"
+
+    return url, code
+
 
 class UniversalSiteHandler(BaseSiteHandler):
     name = "Universal Auto-Detector"

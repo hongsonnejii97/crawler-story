@@ -15,11 +15,13 @@ from core.cleaner import ContentCleaner
 from core.zip_builder import ZipBuilder
 from core.config_manager import load_config
 from core.site_handlers.base import StoryInfo, ChapterContent
+from core.site_handlers.universal import parse_url_and_code
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Tool Crawler Truyện Đóng Gói ZIP Chuẩn Story-Transfer (Import Website)")
     parser.add_argument("--url", "-u", type=str, help="Link truyện cần cào (ví dụ: https://thaonguyen1.giangsonnhuhoa.com/truyen/2311/)")
-    parser.add_argument("--file", "-f", type=str, help="File text chứa danh sách link (mỗi dòng 1 link)")
+    parser.add_argument("--code", "-c", type=str, default="", help="Mã truyện (ví dụ: #ST12435). Sẽ được chèn vào tên chương, tiêu đề và slug truyện")
+    parser.add_argument("--file", "-f", type=str, help="File text chứa danh sách link (mỗi dòng 1 link, có thể kèm mã: link | #ST12435)")
     parser.add_argument("--start", "-s", type=int, default=1, help="Chương bắt đầu (mặc định: 1)")
     parser.add_argument("--end", "-e", type=int, default=None, help="Chương kết thúc (mặc định: hết truyện)")
     parser.add_argument("--workers", "-w", type=int, default=3, help="Số luồng tải song song (mặc định: 3)")
@@ -30,10 +32,12 @@ def parse_args():
 
 def main():
     args = parse_args()
-    urls: List[str] = []
+    targets: List[Tuple[str, str]] = []
 
     if args.url:
-        urls.append(args.url.strip())
+        u, c = parse_url_and_code(args.url.strip(), default_code=args.code)
+        if u:
+            targets.append((u, c))
     elif args.file:
         if not os.path.exists(args.file):
             print(f"[!] Lỗi: File '{args.file}' không tồn tại.")
@@ -41,19 +45,23 @@ def main():
         with open(args.file, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if line.startswith("http"):
-                    urls.append(line)
+                if line:
+                    u, c = parse_url_and_code(line, default_code=args.code)
+                    if u:
+                        targets.append((u, c))
     else:
         print("=" * 65)
         print("   TOOL CRAWLER TRUYỆN ĐÓNG GÓI ZIP (CHUẨN STORY-TRANSFER)")
         print("=" * 65)
         user_url = input("\nNhập link truyện cần cào: ").strip()
-        if not user_url.startswith("http"):
+        user_code = input("Nhập mã truyện (ví dụ: #ST12435, Enter để bỏ qua): ").strip()
+        u, c = parse_url_and_code(user_url, default_code=user_code or args.code)
+        if not u:
             print("[!] Link không hợp lệ. Vui lòng bắt đầu bằng http:// hoặc https://")
             sys.exit(1)
-        urls.append(user_url)
+        targets.append((u, c))
 
-    if not urls:
+    if not targets:
         print("[!] Không tìm thấy link truyện nào cần cào.")
         sys.exit(1)
 
@@ -72,11 +80,12 @@ def main():
     create_batch = args.mode in ("batch", "both")
     stories_bundle: List[Tuple[StoryInfo, List[ChapterContent]]] = []
 
-    print(f"\n[*] Bắt đầu xử lý {len(urls)} truyện. Thư mục xuất: '{os.path.abspath(args.output)}'\n")
+    print(f"\n[*] Bắt đầu xử lý {len(targets)} truyện. Thư mục xuất: '{os.path.abspath(args.output)}'\n")
 
-    for idx, url in enumerate(urls, start=1):
+    for idx, (url, story_code) in enumerate(targets, start=1):
+        code_str = f" [Mã: {story_code}]" if story_code else ""
         print(f"\n------------------------------------------------------------")
-        print(f"[{idx}/{len(urls)}] Đang cào truyện: {url}")
+        print(f"[{idx}/{len(targets)}] Đang cào truyện: {url}{code_str}")
         print(f"------------------------------------------------------------")
 
         def on_progress(p):
@@ -92,7 +101,8 @@ def main():
                 max_workers=args.workers,
                 request_delay=args.delay,
                 progress_callback=on_progress,
-                create_individual_zip=create_individual
+                create_individual_zip=create_individual,
+                story_code=story_code
             )
             print(f"\n[✓] {res.get('message')}")
             if res.get("file_path"):
