@@ -59,7 +59,7 @@ if "%PY_EXE%"=="" (
     echo.
     echo Huong dan cai dat Python cho may moi:
     echo 1. Truy cap https://www.python.org/downloads/ va tai ban moi nhat.
-    echo 2. Khi cai dat, NHO TICH CHON: "Add python.exe to PATH" (rat quan trong).
+    echo 2. Khi cai dat, NHO TICH CHON: "Add python.exe to PATH" - rat quan trong.
     echo 3. Sau khi cai dat xong, mo lai file Chay_Tool_Web.bat nay.
     echo.
     pause
