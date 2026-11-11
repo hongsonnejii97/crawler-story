@@ -44,6 +44,8 @@ DEFAULT_AD_SELECTORS = [
     ".ads", "#ads", ".ad-container", ".advertisement", ".quang-cao", ".banner",
     ".adsbygoogle", ".box-sponsor", ".fb-comments", ".social-share",
     ".nav-chapter", ".chapter-nav", ".btn-chapter-nav", ".box-notice",
+    ".chap-header", ".chap-nav", ".chapter-header", ".chapter-footer",
+    ".chapter-box", ".box-chapter", ".reading-header", ".reading-footer",
     ".rating-box", ".donate-box", ".bottom-ads", ".top-ads", ".es-story-actions",
     ".code-block", "[class*='ai-viewport']", "[class*='ai-insert']",
     ".er-partner-info", "#er-partner-info", "[class*='er-partner-info']", "[data-affiliate-click]"

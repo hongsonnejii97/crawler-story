@@ -97,3 +97,55 @@ class Fetcher:
 
         raise RuntimeError(f"Failed to fetch {url} after {self.max_retries} attempts: {last_err}")
 
+    def post(
+        self,
+        url: str,
+        data: Optional[Dict[str, Any]] = None,
+        referer: Optional[str] = None,
+        is_ajax: bool = True
+    ) -> str:
+        """Send HTTP POST request (e.g. for WordPress AJAX chapter queries)."""
+        headers = self.get_headers(referer)
+        if is_ajax:
+            headers["X-Requested-With"] = "XMLHttpRequest"
+            headers["Accept"] = "*/*"
+        proxies = {"http": self.proxy, "https": self.proxy} if self.proxy else None
+
+        last_err = None
+        for attempt in range(1, self.max_retries + 1):
+            try:
+                if HAS_CURL_CFFI:
+                    resp = cffi_requests.post(
+                        url,
+                        data=data,
+                        headers=headers,
+                        proxies=proxies,
+                        timeout=self.timeout,
+                        impersonate="chrome120",
+                        allow_redirects=True
+                    )
+                else:
+                    import requests
+                    resp = requests.post(
+                        url,
+                        data=data,
+                        headers=headers,
+                        proxies=proxies,
+                        timeout=self.timeout,
+                        allow_redirects=True
+                    )
+
+                if resp.status_code == 200:
+                    return resp.text
+                elif resp.status_code in [403, 503]:
+                    logger.warning(f"Got {resp.status_code} on POST for {url} (attempt {attempt}/{self.max_retries})")
+                else:
+                    logger.warning(f"HTTP {resp.status_code} on POST for {url}")
+            except Exception as e:
+                last_err = e
+                logger.debug(f"POST error for {url}: {e} (attempt {attempt}/{self.max_retries})")
+
+            time.sleep((2 ** attempt) * 0.5 + random.uniform(0.1, 0.4))
+
+        raise RuntimeError(f"Failed to POST {url} after {self.max_retries} attempts: {last_err}")
+

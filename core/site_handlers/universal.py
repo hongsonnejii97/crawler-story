@@ -414,9 +414,28 @@ class UniversalSiteHandler(BaseSiteHandler):
 
         # 1. Title Extraction
         title = ""
-        h1 = soup.select_one("h1.title, h1.story-title, h1.entry-title, h1")
-        if h1:
-            title = h1.get_text(strip=True)
+        base_netloc = urllib.parse.urlparse(url).netloc.lower()
+
+        # Check preferred h1 classes first
+        h1_preferred = soup.select_one("h1.title, h1.story-title, h1.entry-title, h1.name")
+        if h1_preferred:
+            txt = h1_preferred.get_text(strip=True)
+            if txt and txt.lower() != base_netloc and not re.search(r"\.(store|com|vn|net|org|top|info|fit|site)$", txt.lower()):
+                title = txt
+
+        if not title:
+            # Check all h1s, skipping domain/brand headers
+            for h1_tag in soup.find_all("h1"):
+                txt = h1_tag.get_text(strip=True)
+                h1_classes = " ".join(h1_tag.get("class", [])).lower()
+                if any(k in h1_classes for k in ["logo", "brand", "site-title", "header"]):
+                    continue
+                txt_clean = txt.lower().strip()
+                if txt_clean == base_netloc or txt_clean in base_netloc or re.search(r"\.(store|com|vn|net|org|top|info|fit|site)$", txt_clean):
+                    continue
+                if txt:
+                    title = txt
+                    break
 
         if not title:
             og_title = soup.select_one('meta[property="og:title"]')
@@ -442,11 +461,16 @@ class UniversalSiteHandler(BaseSiteHandler):
         if author_meta:
             author = author_meta.get("content") or author_meta.get_text(strip=True)
         else:
-            m = re.search(r"Tác giả\s*:\s*([^<\n\r,]+)", html, re.IGNORECASE)
+            m = re.search(r"Tác giả\s*[:\s]*\s*([^<\n\r,]+)", html, re.IGNORECASE)
             if m:
-                author = m.group(1).strip()
+                cand = m.group(1).strip()
+                if cand and cand.lower() not in ["đang cập nhật", "updating", "chưa rõ"]:
+                    author = cand
 
-        author = re.sub(r"<[^>]+>", "", author).strip() or "Không rõ"
+        author = re.sub(r"<[^>]+>", "", author).strip()
+        author = re.sub(r"^[–—\-:\s]+|[–—\-:\s]+$", "", author).strip()
+        if not author or author.lower() in ["đang cập nhật", "updating", "chưa rõ"]:
+            author = "Không rõ"
 
         # 3. Description Extraction
         desc = extract_full_description(soup)
@@ -485,42 +509,62 @@ class UniversalSiteHandler(BaseSiteHandler):
                     chap_date = f"{m.group(3)}-{m.group(2)}-{m.group(1)} {datetime.now().strftime('%H:%M:%S')}"
 
             if title_span:
-                return title_span.get_text(strip=True), chap_date
-
-            if date_span:
+                raw_t = title_span.get_text(separator=" ", strip=True)
+            elif date_span:
                 clone = BeautifulSoup(str(a_tag), "html.parser")
                 for ds in clone.select(".chapter-date, .chap-date"):
                     ds.decompose()
-                return clone.get_text(strip=True), chap_date
+                raw_t = clone.get_text(separator=" ", strip=True)
+            else:
+                raw_t = a_tag.get_text(separator=" ", strip=True)
 
-            return a_tag.get_text(strip=True), chap_date
+            clean_t = re.sub(r"^\s*\d+\s*(?=(?:chương|chap|chapter|hồi)\b)", "", raw_t, flags=re.I).strip()
+            return clean_t or raw_t, chap_date
 
         def _harvest_links(curr_soup: BeautifulSoup) -> List[ChapterItem]:
             items = []
+
+            def _container_has_chap_links(c_tag: Tag) -> bool:
+                for a in c_tag.find_all("a", href=True):
+                    h = a.get("href", "")
+                    t = a.get_text(strip=True)
+                    if re.search(r"(chuong|chapter|chap|hoi)[-_/]?\d+", h, re.I) or re.search(r"^(Chương|Hồi|Chap|Chapter)\s+\d+", t, re.I):
+                        return True
+                return False
+
             # Priority 1: dedicated main-story chapter containers (including Madara .listing-chapters_wrap / ul.version-chap)
             primary_containers = curr_soup.select(
                 ".listing-chapters_wrap, ul.version-chap, #manga-chapters-holder, "
                 ".es-chapters .chapter-list, #danh-sach-chuong, #list-chapter"
             )
-            if primary_containers:
-                containers = primary_containers
-            else:
+            containers = [c for c in primary_containers if _container_has_chap_links(c)]
+
+            if not containers:
                 # Priority 2: general chapter containers, excluding sidebar/related story widgets
                 raw_containers = curr_soup.select(
                     ".chapter-list, .list-chapter, .list-chapters, .chapters, "
-                    "#chapters, .table-list, ul.list-chap, .box-chap"
+                    "#chapters, .table-list, ul.list-chap, .box-chap, .list"
                 )
-                containers = [
+                filtered = [
                     c for c in raw_containers
                     if not c.find_parent(["aside"])
                     and not c.find_parent(class_=re.compile(r"(sidebar|widget|related|popular|c-sidebar|latest-posters)", re.I))
                 ]
+                containers = [c for c in filtered if _container_has_chap_links(c)]
 
             candidate_links = []
             if containers:
                 for c in containers:
                     candidate_links.extend(c.find_all("a", href=True))
-            else:
+
+            # If no containers OR container links didn't have chapter hrefs, fallback to full page search
+            has_chap_anchor = any(
+                re.search(r"(chuong|chapter|chap|hoi)[-_/]?\d+", a.get("href", ""), re.I)
+                or re.search(r"^(Chương|Hồi|Chap|Chapter)\s+\d+", a.get_text(strip=True), re.I)
+                for a in candidate_links
+            )
+            if not candidate_links or not has_chap_anchor:
+                candidate_links = []
                 for a in curr_soup.find_all("a", href=True):
                     href = a.get("href", "")
                     text = a.get_text(strip=True)
@@ -576,6 +620,74 @@ class UniversalSiteHandler(BaseSiteHandler):
 
             return items
 
+        def _fetch_ajax_chapters() -> List[ChapterItem]:
+            ajax_items: List[ChapterItem] = []
+            if not fetcher:
+                return ajax_items
+
+            # 1. story_core_load_frontend_chapters (e.g. truyendecu.store, Truyện Core plugin)
+            if "story_core_load_frontend_chapters" in html:
+                m_id = re.search(r"(?:mainStoryId|story_id)\s*[:=]\s*['\"]?(\d+)['\"]?", html)
+                story_id = m_id.group(1) if m_id else None
+                m_ajax = re.search(r"(?:mainAjaxurl|ajaxurl|ajax_url)\s*=\s*['\"]([^'\"]+)['\"]", html)
+                ajax_url = m_ajax.group(1) if m_ajax else urllib.parse.urljoin(url, "/wp-admin/admin-ajax.php")
+
+                if story_id and ajax_url:
+                    paged = 1
+                    while paged <= 100:
+                        data = {
+                            "action": "story_core_load_frontend_chapters",
+                            "story_id": story_id,
+                            "paged": paged,
+                            "context": "main"
+                        }
+                        try:
+                            resp_text = fetcher.post(ajax_url, data=data, referer=url, is_ajax=True)
+                            chunk_html = ""
+                            try:
+                                import json
+                                j = json.loads(resp_text)
+                                chunk_html = j.get("data", {}).get("html", "")
+                            except Exception:
+                                chunk_html = resp_text
+
+                            if not chunk_html or len(chunk_html.strip()) < 50:
+                                break
+
+                            chunk_soup = BeautifulSoup(chunk_html, "html.parser")
+                            new_chaps = _harvest_links(chunk_soup)
+                            if not new_chaps:
+                                break
+                            ajax_items.extend(new_chaps)
+                            paged += 1
+                        except Exception as e:
+                            logger.debug(f"Error fetching story_core ajax page {paged}: {e}")
+                            break
+
+            # 2. Madara manga_get_chapters (e.g. Madara themes, laophatgia)
+            if not ajax_items and ("manga_get_chapters" in html or "wp-manga-chapter" in html):
+                m_id = re.search(r"(?:manga_id|post_id|data-id)\s*[:=]\s*['\"]?(\d+)['\"]?", html)
+                manga_id = m_id.group(1) if m_id else None
+                m_ajax = re.search(r"(?:ajaxurl|ajax_url)\s*=\s*['\"]([^'\"]+)['\"]", html)
+                ajax_url = m_ajax.group(1) if m_ajax else urllib.parse.urljoin(url, "/wp-admin/admin-ajax.php")
+
+                if manga_id and ajax_url:
+                    data = {
+                        "action": "manga_get_chapters",
+                        "manga": manga_id
+                    }
+                    try:
+                        resp_text = fetcher.post(ajax_url, data=data, referer=url, is_ajax=True)
+                        if resp_text and len(resp_text) > 100:
+                            chunk_soup = BeautifulSoup(resp_text, "html.parser")
+                            new_chaps = _harvest_links(chunk_soup)
+                            if new_chaps:
+                                ajax_items.extend(new_chaps)
+                    except Exception as e:
+                        logger.debug(f"Error fetching manga_get_chapters ajax: {e}")
+
+            return ajax_items
+
         def _discover_pagination(curr_soup: BeautifulSoup) -> tuple[int, Optional[str], List[str]]:
             """
             Scan a page soup for chapter pagination links.
@@ -616,8 +728,12 @@ class UniversalSiteHandler(BaseSiteHandler):
 
             return max_p, pattern, explicit_urls
 
-        # Harvest page 1
-        chapters.extend(_harvest_links(soup))
+        # Harvest chapters: check AJAX first, otherwise harvest HTML
+        ajax_chapters = _fetch_ajax_chapters()
+        if ajax_chapters:
+            chapters = ajax_chapters
+        else:
+            chapters.extend(_harvest_links(soup))
 
         # Follow all pagination pages sequentially
         if fetcher and chapters:
@@ -683,11 +799,18 @@ class UniversalSiteHandler(BaseSiteHandler):
             title = "Chương không tiêu đề"
 
         # 2. Content Extraction
-        content_div = soup.select_one(
-            ".es-post .content, .content.es-fs-md, #chapter-c, .chapter-c, "
-            "#chapter-content, .chapter-content, #content, .content, "
-            ".entry-content, .post-content, .reading-content, #bookContentBody, article"
-        )
+        content_div = None
+        for sel in [
+            "#chapter-content", ".chapter-content", "#chapter-c", ".chapter-c",
+            ".reading", ".reading-content", ".entry-content", ".post-content",
+            ".es-post .content", ".content.es-fs-md",
+            "#bookContentBody", ".chapter-body", ".content-story",
+            "#content", ".content", "article"
+        ]:
+            found = soup.select_one(sel)
+            if found:
+                content_div = found
+                break
 
         paragraphs: List[str] = []
         html_content: str = ""
@@ -729,8 +852,11 @@ class UniversalSiteHandler(BaseSiteHandler):
 
         if not next_url:
             for a in soup.find_all("a", href=True):
-                txt = a.get_text(strip=True).lower()
-                if txt in ["chương tiếp", "chương sau", "tiếp theo", "next chapter", "next", "sau >"]:
+                txt = a.get_text(separator=" ", strip=True).lower()
+                if (
+                    txt in ["chương tiếp", "chương sau", "tiếp theo", "next chapter", "next", "sau >"]
+                    or re.search(r"^(chương tiếp|chương sau|tiếp theo|next chapter|next\b|sau\b)", txt, re.I)
+                ):
                     raw_href = a["href"]
                     if not raw_href.startswith("#") and "javascript:" not in raw_href and not _is_pagination_link(a, raw_href):
                         cand_url = urllib.parse.urljoin(url, raw_href)
