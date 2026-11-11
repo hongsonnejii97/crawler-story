@@ -4,12 +4,15 @@ Automatically detects and extracts novel information, chapter lists, and content
 """
 import re
 import zlib
+import logging
 import unicodedata
 import urllib.parse
 from datetime import datetime
 from typing import List, Optional, Any, Set, Tuple
 from bs4 import BeautifulSoup, Tag
 from .base import BaseSiteHandler, StoryInfo, ChapterItem, ChapterContent
+
+logger = logging.getLogger("UniversalHandler")
 
 def slugify_vi(text: str) -> str:
     """Convert Vietnamese string into a clean URL slug."""
@@ -400,6 +403,98 @@ def parse_url_and_code(raw_line: str, default_code: str = "") -> Tuple[str, str]
     return url, code
 
 
+def _is_same_or_mirror_domain(cand_url: str, base_url: str) -> bool:
+    """
+    Check if cand_url belongs to the same domain, a subdomain, or a known mirror domain
+    (e.g., vivutruyen.net vs vivutruyen2.net, or URL sharing the story slug).
+    """
+    try:
+        cand_parsed = urllib.parse.urlparse(cand_url)
+        base_parsed = urllib.parse.urlparse(base_url)
+        cand_netloc = cand_parsed.netloc.lower().split(":")[0]
+        base_netloc = base_parsed.netloc.lower().split(":")[0]
+        if not cand_netloc or not base_netloc:
+            return False
+        if cand_netloc == base_netloc:
+            return True
+
+        # Check domain parts (e.g. vivutruyen2.net vs vivutruyen.net)
+        cand_parts = cand_netloc.split(".")
+        base_parts = base_netloc.split(".")
+        if len(cand_parts) >= 2 and len(base_parts) >= 2:
+            cand_sld = cand_parts[-2]
+            base_sld = base_parts[-2]
+            cand_core = re.sub(r"\d+$", "", cand_sld)
+            base_core = re.sub(r"\d+$", "", base_sld)
+            if cand_core and base_core and (cand_core == base_core or cand_core in base_core or base_core in cand_core):
+                return True
+
+        # Check if cand_url contains the story slug from base_url
+        base_path_parts = [p for p in base_parsed.path.split("/") if p]
+        cand_path_parts = [p for p in cand_parsed.path.split("/") if p]
+        for bp in base_path_parts:
+            # Story slug is usually a hyphenated string with length >= 6 and not a standard directory like 'truyen' or 'manga'
+            if len(bp) >= 6 and "-" in bp and bp in cand_path_parts:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _find_in_content_continuation_link(soup: BeautifulSoup, current_url: str, title: str = "") -> Optional[str]:
+    """
+    Find continuation link embedded in chapter content (e.g. 'CHƯƠNG 6 – ẤN ĐỂ ĐỌC TIẾP: <link>').
+    Commonly used when sites split stories across mirror domains.
+    """
+    continuation_patterns = [
+        r"ấn\s*để\s*đọc\s*tiếp",
+        r"bấm\s*để\s*đọc\s*tiếp",
+        r"click\s*để\s*đọc\s*tiếp",
+        r"đọc\s*tiếp\s*(?:chương|tập|phần)?",
+        r"xem\s*tiếp\s*(?:chương|tập|phần)?",
+        r"link\s*đọc\s*tiếp",
+        r"chương\s*\d+\s*[-–—:]+\s*ấn\s*để\s*đọc\s*tiếp",
+        r"qua\s*(?:web|trang)\s*mới\s*đọc\s*tiếp",
+    ]
+    cont_regex = re.compile("|".join(continuation_patterns), re.IGNORECASE)
+
+    containers = soup.select(
+        "#chapter-content, .chapter-content, #chapter-c, .chapter-c, "
+        ".reading, .reading-content, .entry-content, .post-content, "
+        ".es-post .content, .content.es-fs-md, article, body"
+    ) or [soup]
+
+    for container in containers:
+        for a in container.find_all("a", href=True):
+            href = a.get("href", "").strip()
+            if not href or href.startswith("#") or "javascript:" in href:
+                continue
+            a_text = a.get_text(separator=" ", strip=True)
+            parent_text = a.parent.get_text(separator=" ", strip=True) if a.parent else ""
+            if cont_regex.search(a_text) or cont_regex.search(parent_text):
+                cand_url = urllib.parse.urljoin(current_url, href)
+                if cand_url.rstrip("/") != current_url.rstrip("/"):
+                    if _is_same_or_mirror_domain(cand_url, current_url):
+                        return cand_url
+
+        for p in container.find_all(["p", "div", "span"]):
+            p_text = p.get_text(separator=" ", strip=True)
+            if cont_regex.search(p_text):
+                a_tag = p.find("a", href=True)
+                if a_tag:
+                    href = a_tag.get("href", "").strip()
+                    if href and not href.startswith("#") and "javascript:" not in href:
+                        cand_url = urllib.parse.urljoin(current_url, href)
+                        if cand_url.rstrip("/") != current_url.rstrip("/") and _is_same_or_mirror_domain(cand_url, current_url):
+                            return cand_url
+                m_url = re.search(r"https?://[^\s<>\"'`]+", p_text)
+                if m_url:
+                    cand_url = m_url.group(0).rstrip(".,;)>]")
+                    if cand_url.rstrip("/") != current_url.rstrip("/") and _is_same_or_mirror_domain(cand_url, current_url):
+                        return cand_url
+    return None
+
+
 class UniversalSiteHandler(BaseSiteHandler):
     name = "Universal Auto-Detector"
 
@@ -491,7 +586,7 @@ class UniversalSiteHandler(BaseSiteHandler):
             cover_url=cover_url
         )
 
-    def extract_chapter_list(self, html: str, url: str, fetcher: Any = None) -> List[ChapterItem]:
+    def extract_chapter_list(self, html: str, url: str, fetcher: Any = None, depth: int = 0) -> List[ChapterItem]:
         soup = BeautifulSoup(html, "html.parser")
         check_for_coming_soon(soup)
 
@@ -772,6 +867,59 @@ class UniversalSiteHandler(BaseSiteHandler):
                         except Exception:
                             pass
 
+        # Normalize existing chapters first to find the true last chapter
+        chapters = _normalize_chapter_order(chapters)
+
+        # Proactively check for continuation links / mirror domains (e.g. vivutruyen2 -> vivutruyen)
+        if fetcher and chapters and len(chapters) < 100 and depth < 2:
+            continuation_depth = 0
+            while continuation_depth < 3:
+                last_item = chapters[-1]
+                try:
+                    last_html = fetcher.fetch(last_item.url, referer=url)
+                    last_soup = BeautifulSoup(last_html, "html.parser")
+                    cont_url = _find_in_content_continuation_link(last_soup, last_item.url)
+                    if not cont_url:
+                        break
+
+                    logger.info(f"Discovered in-content continuation link: {cont_url}")
+                    cont_parsed = urllib.parse.urlparse(cont_url)
+                    cont_path_parts = [p for p in cont_parsed.path.split("/") if p]
+                    new_story_urls = []
+                    if len(cont_path_parts) >= 2:
+                        cand_story_path = "/" + "/".join(cont_path_parts[:-1]) + "/"
+                        cand_story_url = urllib.parse.urlunparse((
+                            cont_parsed.scheme, cont_parsed.netloc, cand_story_path, "", "", ""
+                        ))
+                        new_story_urls.append(cand_story_url)
+                    new_story_urls.append(cont_url)
+
+                    added_count = 0
+                    current_seen = {c.url.rstrip("/") for c in chapters}
+                    for st_url in new_story_urls:
+                        try:
+                            st_html = fetcher.fetch(st_url, referer=last_item.url)
+                            more_items = self.extract_chapter_list(st_html, st_url, fetcher, depth=depth + 1)
+                            if more_items:
+                                for itm in more_items:
+                                    norm_u = itm.url.rstrip("/")
+                                    if norm_u not in current_seen:
+                                        current_seen.add(norm_u)
+                                        chapters.append(itm)
+                                        added_count += 1
+                                if added_count > 0:
+                                    break
+                        except Exception as e:
+                            logger.debug(f"Failed to harvest from continuation url {st_url}: {e}")
+
+                    if added_count == 0:
+                        break
+                    chapters = _normalize_chapter_order(chapters)
+                    continuation_depth += 1
+                except Exception as e:
+                    logger.debug(f"Continuation check error: {e}")
+                    break
+
         return _normalize_chapter_order(chapters)
 
     def extract_chapter_content(self, html: str, url: str, cleaner: Any) -> ChapterContent:
@@ -836,7 +984,7 @@ class UniversalSiteHandler(BaseSiteHandler):
                     paragraphs = h_paras
                     html_content = h_html
 
-        # 3. Next Chapter link detection (must belong to the same domain)
+        # 3. Next Chapter link detection (must belong to the same domain or mirror domain)
         base_netloc = urllib.parse.urlparse(url).netloc.lower()
         next_url = None
         next_tag = soup.select_one(
@@ -847,7 +995,7 @@ class UniversalSiteHandler(BaseSiteHandler):
             raw_href = next_tag["href"]
             if not raw_href.startswith("#") and "javascript:" not in raw_href and not _is_pagination_link(next_tag, raw_href):
                 cand_url = urllib.parse.urljoin(url, raw_href)
-                if urllib.parse.urlparse(cand_url).netloc.lower() == base_netloc and cand_url.rstrip("/") != url.rstrip("/"):
+                if _is_same_or_mirror_domain(cand_url, url) and cand_url.rstrip("/") != url.rstrip("/"):
                     next_url = cand_url
 
         if not next_url:
@@ -860,9 +1008,12 @@ class UniversalSiteHandler(BaseSiteHandler):
                     raw_href = a["href"]
                     if not raw_href.startswith("#") and "javascript:" not in raw_href and not _is_pagination_link(a, raw_href):
                         cand_url = urllib.parse.urljoin(url, raw_href)
-                        if urllib.parse.urlparse(cand_url).netloc.lower() == base_netloc and cand_url.rstrip("/") != url.rstrip("/"):
+                        if _is_same_or_mirror_domain(cand_url, url) and cand_url.rstrip("/") != url.rstrip("/"):
                             next_url = cand_url
                             break
+
+        if not next_url:
+            next_url = _find_in_content_continuation_link(soup, url, title)
 
         return ChapterContent(
             title=title,
