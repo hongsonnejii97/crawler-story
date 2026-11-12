@@ -162,6 +162,7 @@ def extract_full_description(soup: BeautifulSoup) -> str:
             "script, style, ins, iframe, button, h1, h2, h3, h4, ul, ol, table, form, "
             ".kk-star-ratings, .kksr-stars, .kksr-legend, .info, .box-text, .wpdiscuz, #comments, "
             ".summary-overlay, .btn-toggle-modern, .es-story-actions, .es-chapters, "
+            ".show-more, .btn-readmore, .readmore, .btn-see-more, [class*='readmore'], [class*='read-more'], [class*='xem-them'], "
             ".chapter-list, #list-chapter, #danh-sach-chuong, .list-chapter, .chapter-pagination, "
             ".code-block, [class*='ai-viewport'], [class*='ai-insert'], .er-partner-info, "
             "[data-affiliate-click], a.es-btn, #story-style-form"
@@ -202,6 +203,10 @@ def extract_full_description(soup: BeautifulSoup) -> str:
 
     # 1. Check dedicated synopsis containers
     desc_selectors = (
+        ".detail-desc, .detail-desc-wrapper, .js-desc, [class*='detail-desc'], [class*='desc-detail'], "
+        ".truyen-desc-text, #desc-content, .truyen-desc-container, #gioi-thieu-truyen, "
+        "[id*='gioi-thieu'], [class*='gioi-thieu'], [id*='van-an'], [class*='van-an'], "
+        ".desc-content, .story-detail-desc, .story-synopsis, .synopsis, "
         ".group-box .content, #text-box.summary-content, #text-box, .summary-content, "
         ".desc-text, .story-desc, .content-desc, .book-intro, .novel-desc, "
         ".story-introduction, .van-an, #van-an, .gioi-thieu, #gioi-thieu, "
@@ -215,7 +220,31 @@ def extract_full_description(soup: BeautifulSoup) -> str:
             best_len = cand_len
             best_desc = candidate
 
-    # 2. Check Flatsome / Elementor / generic containers (e.g. .col-inner on comong.info)
+    # 2. Heading-based synopsis discovery (e.g. <h2>GIỚI THIỆU TRUYỆN</h2>, <h3>VĂN ÁN</h3>)
+    heading_regex = re.compile(
+        r"^(?:giới thiệu(?:\s*truyện)?|văn án|tóm tắt(?:\s*truyện)?|nội dung(?:\s*truyện)?|synopsis)$",
+        re.I
+    )
+    for h in soup.find_all(["h1", "h2", "h3", "h4", "h5", "h6", "strong", "b"]):
+        htxt = h.get_text(strip=True)
+        if heading_regex.match(htxt):
+            cand_node = h.find_next_sibling()
+            while cand_node and cand_node.name in ["p", "div", "section"]:
+                candidate = _clean_container_to_desc(cand_node, direct_p_only=False)
+                cand_len = len(candidate)
+                if cand_len >= 25 and cand_len > best_len:
+                    best_len = cand_len
+                    best_desc = candidate
+                cand_node = cand_node.find_next_sibling()
+
+            if h.parent and not h.parent.find_parent(["aside", "footer", "header", "nav"]):
+                candidate = _clean_container_to_desc(h.parent, direct_p_only=False)
+                cand_len = len(candidate)
+                if cand_len >= 25 and cand_len > best_len:
+                    best_len = cand_len
+                    best_desc = candidate
+
+    # 3. Check Flatsome / Elementor / generic containers (e.g. .col-inner on comong.info)
     # Especially when meta og:description is present and matches a paragraph inside that container,
     # or when a .col-inner has multiple direct <p> children forming the story description.
     for col in soup.select(".col-inner, .elementor-widget-text-editor, .wpb_wrapper"):
@@ -625,8 +654,8 @@ class UniversalSiteHandler(BaseSiteHandler):
         seen_urls: Set[str] = set()
 
         def _extract_link_title_and_date(a_tag: Tag) -> tuple[str, str]:
-            title_span = a_tag.select_one(".chapter-title, .chap-title, .chap-no")
-            date_span = a_tag.select_one(".chapter-date, .chap-date")
+            title_span = a_tag.select_one(".chapter-name, .chapter-title, .chap-title, .chap-name")
+            date_span = a_tag.select_one(".chapter-date, .chap-date, .chapter-time, .chap-time, time")
             chap_date = ""
             if date_span:
                 d_txt = date_span.get_text(strip=True)
@@ -638,13 +667,14 @@ class UniversalSiteHandler(BaseSiteHandler):
                 raw_t = title_span.get_text(separator=" ", strip=True)
             elif date_span:
                 clone = BeautifulSoup(str(a_tag), "html.parser")
-                for ds in clone.select(".chapter-date, .chap-date"):
+                for ds in clone.select(".chapter-date, .chap-date, .chapter-time, .chap-time, time"):
                     ds.decompose()
                 raw_t = clone.get_text(separator=" ", strip=True)
             else:
                 raw_t = a_tag.get_text(separator=" ", strip=True)
 
             clean_t = re.sub(r"^\s*\d+\s*(?=(?:chương|chap|chapter|hồi)\b)", "", raw_t, flags=re.I).strip()
+            clean_t = re.sub(r"\s*\d+\s*(?:giờ|phút|ngày|tháng|năm|giây|hours?|days?|minutes?)\s*trước\s*$", "", clean_t, flags=re.I).strip()
             return clean_t or raw_t, chap_date
 
         def _harvest_links(curr_soup: BeautifulSoup) -> List[ChapterItem]:
