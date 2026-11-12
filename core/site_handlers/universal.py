@@ -403,6 +403,13 @@ def parse_url_and_code(raw_line: str, default_code: str = "") -> Tuple[str, str]
     return url, code
 
 
+def _clean_slug_token(s: str) -> str:
+    """Clean a path component by stripping extensions, chapter numbers, and common short prefixes."""
+    s = re.sub(r"\.(html|htm|php|asp|aspx)$", "", s.lower())
+    s = re.sub(r"^(?:h\d+|c\d+|p\d+|story|truyen|manga)-", "", s)
+    return s.strip("-")
+
+
 def _is_same_or_mirror_domain(cand_url: str, base_url: str) -> bool:
     """
     Check if cand_url belongs to the same domain, a subdomain, or a known mirror domain
@@ -430,12 +437,14 @@ def _is_same_or_mirror_domain(cand_url: str, base_url: str) -> bool:
                 return True
 
         # Check if cand_url contains the story slug from base_url
-        base_path_parts = [p for p in base_parsed.path.split("/") if p]
-        cand_path_parts = [p for p in cand_parsed.path.split("/") if p]
+        base_path_parts = [_clean_slug_token(p) for p in base_parsed.path.split("/") if p]
+        cand_path_parts = [_clean_slug_token(p) for p in cand_parsed.path.split("/") if p]
         for bp in base_path_parts:
-            # Story slug is usually a hyphenated string with length >= 6 and not a standard directory like 'truyen' or 'manga'
-            if len(bp) >= 6 and "-" in bp and bp in cand_path_parts:
-                return True
+            if len(bp) >= 6 and "-" in bp:
+                for cp in cand_path_parts:
+                    if len(cp) >= 6 and "-" in cp:
+                        if bp == cp or bp in cp or cp in bp:
+                            return True
     except Exception:
         pass
     return False
@@ -443,26 +452,38 @@ def _is_same_or_mirror_domain(cand_url: str, base_url: str) -> bool:
 
 def _find_in_content_continuation_link(soup: BeautifulSoup, current_url: str, title: str = "") -> Optional[str]:
     """
-    Find continuation link embedded in chapter content (e.g. 'CHƯƠNG 6 – ẤN ĐỂ ĐỌC TIẾP: <link>').
+    Find continuation link embedded in chapter content (e.g. 'CHƯƠNG 6 – ẤN ĐỂ ĐỌC TIẾP: <link>'
+    or '👉 Đọc tiếp tại Website Phụ 👈').
     Commonly used when sites split stories across mirror domains.
     """
     continuation_patterns = [
         r"ấn\s*để\s*đọc\s*tiếp",
         r"bấm\s*để\s*đọc\s*tiếp",
         r"click\s*để\s*đọc\s*tiếp",
+        r"đọc\s*tiếp\s*tại\s*(?:website|web|trang)?(?:\s*(?:phụ|chính|mới))?",
         r"đọc\s*tiếp\s*(?:chương|tập|phần)?",
         r"xem\s*tiếp\s*(?:chương|tập|phần)?",
         r"link\s*đọc\s*tiếp",
+        r"website\s*phụ",
+        r"trang\s*phụ",
+        r"qua\s*(?:web|trang)\s*(?:mới|phụ)",
         r"chương\s*\d+\s*[-–—:]+\s*ấn\s*để\s*đọc\s*tiếp",
-        r"qua\s*(?:web|trang)\s*mới\s*đọc\s*tiếp",
     ]
     cont_regex = re.compile("|".join(continuation_patterns), re.IGNORECASE)
 
+    explicit_partner_regex = re.compile(
+        r"(?:website\s*phụ|trang\s*phụ|đọc\s*tiếp\s*tại\s*(?:website|web|trang)|ấn\s*để\s*đọc\s*tiếp)",
+        re.IGNORECASE
+    )
+
     containers = soup.select(
         "#chapter-content, .chapter-content, #chapter-c, .chapter-c, "
+        ".chapter-content-area, "
         ".reading, .reading-content, .entry-content, .post-content, "
-        ".es-post .content, .content.es-fs-md, article, body"
-    ) or [soup]
+        ".es-post .content, .content.es-fs-md, article"
+    )
+    if not containers:
+        containers = [soup.body or soup]
 
     for container in containers:
         for a in container.find_all("a", href=True):
@@ -474,24 +495,34 @@ def _find_in_content_continuation_link(soup: BeautifulSoup, current_url: str, ti
             if cont_regex.search(a_text) or cont_regex.search(parent_text):
                 cand_url = urllib.parse.urljoin(current_url, href)
                 if cand_url.rstrip("/") != current_url.rstrip("/"):
+                    if (explicit_partner_regex.search(a_text) or explicit_partner_regex.search(parent_text)) and re.search(r"(?:chuong|chap|hoi)[-_/]?\d+", href, re.I):
+                        return cand_url
                     if _is_same_or_mirror_domain(cand_url, current_url):
                         return cand_url
 
         for p in container.find_all(["p", "div", "span"]):
+            if p.find_all(["div", "section"]):
+                continue
             p_text = p.get_text(separator=" ", strip=True)
-            if cont_regex.search(p_text):
+            if len(p_text) < 500 and cont_regex.search(p_text):
                 a_tag = p.find("a", href=True)
                 if a_tag:
                     href = a_tag.get("href", "").strip()
                     if href and not href.startswith("#") and "javascript:" not in href:
                         cand_url = urllib.parse.urljoin(current_url, href)
-                        if cand_url.rstrip("/") != current_url.rstrip("/") and _is_same_or_mirror_domain(cand_url, current_url):
-                            return cand_url
+                        if cand_url.rstrip("/") != current_url.rstrip("/"):
+                            if (explicit_partner_regex.search(p_text) or explicit_partner_regex.search(a_tag.get_text())) and re.search(r"(?:chuong|chap|hoi)[-_/]?\d+", href, re.I):
+                                return cand_url
+                            if _is_same_or_mirror_domain(cand_url, current_url):
+                                return cand_url
                 m_url = re.search(r"https?://[^\s<>\"'`]+", p_text)
                 if m_url:
                     cand_url = m_url.group(0).rstrip(".,;)>]")
-                    if cand_url.rstrip("/") != current_url.rstrip("/") and _is_same_or_mirror_domain(cand_url, current_url):
-                        return cand_url
+                    if cand_url.rstrip("/") != current_url.rstrip("/"):
+                        if explicit_partner_regex.search(p_text) and re.search(r"(?:chuong|chap|hoi)[-_/]?\d+", cand_url, re.I):
+                            return cand_url
+                        if _is_same_or_mirror_domain(cand_url, current_url):
+                            return cand_url
     return None
 
 
@@ -912,6 +943,46 @@ class UniversalSiteHandler(BaseSiteHandler):
                         except Exception as e:
                             logger.debug(f"Failed to harvest from continuation url {st_url}: {e}")
 
+                    if added_count == 0 and cont_url:
+                        # Fallback: traverse sequentially from cont_url to collect remaining chapters
+                        curr_u = cont_url
+                        seq_limit = 500
+                        from ..cleaner import ContentCleaner
+                        seq_cleaner = ContentCleaner()
+                        while curr_u and added_count < seq_limit:
+                            norm_u = curr_u.rstrip("/")
+                            if norm_u in current_seen:
+                                break
+                            current_seen.add(norm_u)
+                            try:
+                                c_html = fetcher.fetch(curr_u, referer=last_item.url)
+                                c_soup = BeautifulSoup(c_html, "html.parser")
+                                c_content = self.extract_chapter_content(c_html, curr_u, seq_cleaner)
+                                c_title = c_content.title
+                                if not re.search(r"(chương|chap|hồi)\b", c_title, re.I) and c_soup.title:
+                                    st = re.sub(
+                                        r"\s*[-|–]\s*(Đọc truyện|Truyện Full|Online|Tàng Thư Viện|[a-zA-Z0-9.\-]+\.(com|vn|net|org|site)).*$",
+                                        "",
+                                        c_soup.title.get_text(strip=True),
+                                        flags=re.I
+                                    ).strip()
+                                    if re.search(r"(chương|chap|hồi)\b", st, re.I):
+                                        c_title = st
+                                chapters.append(ChapterItem(
+                                    index=len(chapters) + 1,
+                                    title=c_title,
+                                    url=curr_u,
+                                    slug=c_content.slug or extract_slug_from_url(curr_u, c_title)
+                                ))
+                                added_count += 1
+                                nxt = c_content.next_url
+                                if not nxt or nxt.rstrip("/") == norm_u or nxt.rstrip("/") in current_seen:
+                                    break
+                                curr_u = nxt
+                            except Exception as e:
+                                logger.debug(f"Sequential crawl stopped at {curr_u}: {e}")
+                                break
+
                     if added_count == 0:
                         break
                     chapters = _normalize_chapter_order(chapters)
@@ -943,6 +1014,19 @@ class UniversalSiteHandler(BaseSiteHandler):
                 break
         if not title and title_candidates:
             title = title_candidates[0].get_text(strip=True)
+
+        if not title or not re.search(r"(chương|hồi|chap|chapter|tiết|#st\d+)", title, re.I):
+            if soup.title and re.search(r"(chương|hồi|chap|chapter|tiết)\b", soup.title.get_text(), re.I):
+                raw_st = soup.title.get_text(strip=True)
+                raw_st = re.sub(
+                    r"\s*[-|–]\s*(Đọc truyện|Truyện Full|Online|Tàng Thư Viện|Wattpad|WeTruyen|[a-zA-Z0-9.\-]+\.(com|vn|net|org|site)).*$",
+                    "",
+                    raw_st,
+                    flags=re.IGNORECASE
+                ).strip()
+                if raw_st:
+                    title = raw_st
+
         if not title:
             title = "Chương không tiêu đề"
 
@@ -1002,8 +1086,8 @@ class UniversalSiteHandler(BaseSiteHandler):
             for a in soup.find_all("a", href=True):
                 txt = a.get_text(separator=" ", strip=True).lower()
                 if (
-                    txt in ["chương tiếp", "chương sau", "tiếp theo", "next chapter", "next", "sau >"]
-                    or re.search(r"^(chương tiếp|chương sau|tiếp theo|next chapter|next\b|sau\b)", txt, re.I)
+                    txt in ["chương tiếp", "chươngtiếp", "chương sau", "chươngsau", "tiếp theo", "tiếptheo", "next chapter", "next", "sau >"]
+                    or re.search(r"^(chương\s*tiếp|chương\s*sau|tiếp\s*theo|next\s*chapter|next\b|sau\b)", txt, re.I)
                 ):
                     raw_href = a["href"]
                     if not raw_href.startswith("#") and "javascript:" not in raw_href and not _is_pagination_link(a, raw_href):
