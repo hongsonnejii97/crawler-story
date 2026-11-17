@@ -3,10 +3,12 @@ Site Handlers Registry.
 """
 from typing import List, Type
 from .base import BaseSiteHandler, StoryInfo, ChapterItem, ChapterContent
+from .docdem import DocDemHandler
 from .wetruyen_truyenfull import TruyenFullFamilyHandler
 from .universal import UniversalSiteHandler
 
 REGISTERED_HANDLERS: List[BaseSiteHandler] = [
+    DocDemHandler(),
     TruyenFullFamilyHandler(),
     UniversalSiteHandler(),
 ]

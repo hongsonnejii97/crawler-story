@@ -582,6 +582,12 @@ class UniversalSiteHandler(BaseSiteHandler):
         return True
 
     def extract_story_info(self, html: str, url: str) -> StoryInfo:
+        if "shissf.com" in url or "truyentruyen.com" in url or "/data/truyen.json" in html:
+            from .docdem import DocDemHandler
+            docdem = DocDemHandler()
+            if docdem.match(url) or "/data/truyen.json" in html:
+                return docdem.extract_story_info(html, url)
+
         soup = BeautifulSoup(html, "html.parser")
         check_for_coming_soon(soup)
 
@@ -679,6 +685,12 @@ class UniversalSiteHandler(BaseSiteHandler):
         )
 
     def extract_chapter_list(self, html: str, url: str, fetcher: Any = None, depth: int = 0) -> List[ChapterItem]:
+        if "shissf.com" in url or "truyentruyen.com" in url or "/data/truyen.json" in html:
+            from .docdem import DocDemHandler
+            docdem = DocDemHandler()
+            if docdem.match(url) or "/data/truyen.json" in html:
+                return docdem.extract_chapter_list(html, url, fetcher)
+
         soup = BeautifulSoup(html, "html.parser")
         check_for_coming_soon(soup)
 
@@ -1109,6 +1121,12 @@ class UniversalSiteHandler(BaseSiteHandler):
         return _normalize_chapter_order(chapters)
 
     def extract_chapter_content(self, html: str, url: str, cleaner: Any) -> ChapterContent:
+        if "shissf.com" in url or "truyentruyen.com" in url or "/data/" in url:
+            from .docdem import DocDemHandler
+            docdem = DocDemHandler()
+            if docdem.match(url) or "/data/" in url:
+                return docdem.extract_chapter_content(html, url, cleaner)
+
         soup = BeautifulSoup(html, "html.parser")
         check_for_coming_soon(soup)
 
