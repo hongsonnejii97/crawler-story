@@ -507,22 +507,21 @@ def _find_in_content_continuation_link(soup: BeautifulSoup, current_url: str, ti
     Commonly used when sites split stories across mirror domains.
     """
     continuation_patterns = [
-        r"ấn\s*để\s*đọc\s*tiếp",
-        r"bấm\s*để\s*đọc\s*tiếp",
-        r"click\s*để\s*đọc\s*tiếp",
+        r"(?:ấn|bấm|click)\s*(?:tiếp|vào\s*đây|để|ngay)?\s*(?:để\s*)?(?:đọc|xem)(?:\s*tiếp)?(?:\s*(?:chương|tập|phần)\s*\d+)?",
         r"đọc\s*tiếp\s*tại\s*(?:đây|website|web|trang)?(?:\s*(?:phụ|chính|mới))?",
-        r"đọc\s*tiếp\s*(?:chương|tập|phần)?",
-        r"xem\s*tiếp\s*(?:chương|tập|phần)?",
-        r"link\s*đọc\s*tiếp",
+        r"(?:đọc|xem)\s*tiếp(?:\s*(?:chương|tập|phần))?",
+        r"chương\s*(?:tiếp\s*theo|kế\s*tiếp|sau)",
+        r"link\s*(?:đọc|xem)\s*tiếp",
         r"website\s*phụ",
         r"trang\s*phụ",
         r"qua\s*(?:web|trang)\s*(?:mới|phụ)",
-        r"chương\s*\d+\s*[-–—:]+\s*ấn\s*để\s*đọc\s*tiếp",
+        r"(?:chương\s*\d+\s*[-–—:]+\s*)?(?:ấn|bấm|click)\s*(?:tiếp|vào\s*đây|để|ngay)?\s*(?:để\s*)?(?:đọc|xem)(?:\s*tiếp)?(?:\s*chương\s*\d+)?",
     ]
     cont_regex = re.compile("|".join(continuation_patterns), re.IGNORECASE)
 
     explicit_partner_regex = re.compile(
-        r"(?:website\s*phụ|trang\s*phụ|đọc\s*tiếp\s*tại\s*(?:đây|website|web|trang)|ấn\s*để\s*đọc\s*tiếp)",
+        r"(?:website\s*phụ|trang\s*phụ|đọc\s*tiếp\s*tại\s*(?:đây|website|web|trang)|"
+        r"(?:ấn|bấm|click)\s*(?:tiếp|vào\s*đây|để|ngay)?\s*(?:để\s*)?(?:đọc|xem)(?:\s*tiếp)?)",
         re.IGNORECASE
     )
 
