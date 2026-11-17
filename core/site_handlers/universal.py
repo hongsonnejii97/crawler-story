@@ -148,6 +148,8 @@ def extract_full_description(soup: BeautifulSoup) -> str:
     meta_desc = ""
     for meta in soup.select('meta[property="og:description"], meta[name="description"]'):
         c = (meta.get("content") or "").replace("\xa0", " ").strip()
+        c = re.sub(r"<[^>]+>", " ", c)
+        c = re.sub(r"[ \t]+", " ", c).strip()
         if c and not ui_noise_regex.match(c) and len(c) > len(meta_desc):
             meta_desc = c
 
@@ -165,7 +167,9 @@ def extract_full_description(soup: BeautifulSoup) -> str:
             ".show-more, .btn-readmore, .readmore, .btn-see-more, [class*='readmore'], [class*='read-more'], [class*='xem-them'], "
             ".chapter-list, #list-chapter, #danh-sach-chuong, .list-chapter, .chapter-pagination, "
             ".code-block, [class*='ai-viewport'], [class*='ai-insert'], .er-partner-info, "
-            "[data-affiliate-click], a.es-btn, #story-style-form"
+            "[data-affiliate-click], a.es-btn, #story-style-form, "
+            ".post-content_item, .post-status, .post-rating, .post-title, .summary-heading, "
+            ".genres-content, .author-content, .artist-content, .c-blog__heading"
         ):
             noise.decompose()
 
@@ -201,24 +205,41 @@ def extract_full_description(soup: BeautifulSoup) -> str:
     best_desc = ""
     best_len = 0
 
-    # 1. Check dedicated synopsis containers
-    desc_selectors = (
-        ".detail-desc, .detail-desc-wrapper, .js-desc, [class*='detail-desc'], [class*='desc-detail'], "
-        ".truyen-desc-text, #desc-content, .truyen-desc-container, #gioi-thieu-truyen, "
-        "[id*='gioi-thieu'], [class*='gioi-thieu'], [id*='van-an'], [class*='van-an'], "
-        ".desc-content, .story-detail-desc, .story-synopsis, .synopsis, "
-        ".group-box .content, #text-box.summary-content, #text-box, .summary-content, "
-        ".desc-text, .story-desc, .content-desc, .book-intro, .novel-desc, "
-        ".story-introduction, .van-an, #van-an, .gioi-thieu, #gioi-thieu, "
-        '[itemprop="description"], .box-description, .tab-summary, '
-        ".description, .desc, .summary, .intro, #description, .entry-content, .post-content"
-    )
-    for dc in soup.select(desc_selectors):
-        candidate = _clean_container_to_desc(dc, direct_p_only=False)
-        cand_len = len(candidate)
-        if cand_len >= 25 and cand_len > best_len:
-            best_len = cand_len
-            best_desc = candidate
+    # 1. Check dedicated high-priority synopsis containers in order of specificity
+    priority_selectors = [
+        ".summary__content", ".description-summary", ".manga-excerpt",
+        ".story-detail__top--desc",
+        ".detail-desc", ".detail-desc-wrapper", ".js-desc", "[class*='detail-desc']", "[class*='desc-detail']",
+        ".truyen-desc-text", "#desc-content", ".truyen-desc-container", "#gioi-thieu-truyen",
+        "[id*='gioi-thieu']", "[class*='gioi-thieu']", "[id*='van-an']", "[class*='van-an']",
+        ".desc-content", ".story-detail-desc", ".story-synopsis", ".synopsis",
+        ".group-box .content", "#text-box.summary-content", "#text-box",
+        ".desc-text", ".story-desc", ".content-desc", ".book-intro", ".novel-desc",
+        ".story-introduction", ".van-an", "#van-an", ".gioi-thieu", "#gioi-thieu",
+        '[itemprop="description"]'
+    ]
+    for sel in priority_selectors:
+        for dc in soup.select(sel):
+            candidate = _clean_container_to_desc(dc, direct_p_only=False)
+            cand_len = len(candidate)
+            if cand_len >= 30 and cand_len > best_len:
+                best_len = cand_len
+                best_desc = candidate
+        if best_desc:
+            break
+
+    # If no priority container found, check secondary/generic containers
+    if not best_desc:
+        desc_selectors = (
+            ".box-description, .description, .desc, .summary, .intro, #description, "
+            ".summary-content, .entry-content, .post-content"
+        )
+        for dc in soup.select(desc_selectors):
+            candidate = _clean_container_to_desc(dc, direct_p_only=False)
+            cand_len = len(candidate)
+            if cand_len >= 25 and cand_len > best_len:
+                best_len = cand_len
+                best_desc = candidate
 
     # 2. Heading-based synopsis discovery (e.g. <h2>GIỚI THIỆU TRUYỆN</h2>, <h3>VĂN ÁN</h3>)
     heading_regex = re.compile(
@@ -489,7 +510,7 @@ def _find_in_content_continuation_link(soup: BeautifulSoup, current_url: str, ti
         r"ấn\s*để\s*đọc\s*tiếp",
         r"bấm\s*để\s*đọc\s*tiếp",
         r"click\s*để\s*đọc\s*tiếp",
-        r"đọc\s*tiếp\s*tại\s*(?:website|web|trang)?(?:\s*(?:phụ|chính|mới))?",
+        r"đọc\s*tiếp\s*tại\s*(?:đây|website|web|trang)?(?:\s*(?:phụ|chính|mới))?",
         r"đọc\s*tiếp\s*(?:chương|tập|phần)?",
         r"xem\s*tiếp\s*(?:chương|tập|phần)?",
         r"link\s*đọc\s*tiếp",
@@ -501,7 +522,7 @@ def _find_in_content_continuation_link(soup: BeautifulSoup, current_url: str, ti
     cont_regex = re.compile("|".join(continuation_patterns), re.IGNORECASE)
 
     explicit_partner_regex = re.compile(
-        r"(?:website\s*phụ|trang\s*phụ|đọc\s*tiếp\s*tại\s*(?:website|web|trang)|ấn\s*để\s*đọc\s*tiếp)",
+        r"(?:website\s*phụ|trang\s*phụ|đọc\s*tiếp\s*tại\s*(?:đây|website|web|trang)|ấn\s*để\s*đọc\s*tiếp)",
         re.IGNORECASE
     )
 
@@ -601,7 +622,7 @@ class UniversalSiteHandler(BaseSiteHandler):
             title = soup.title.get_text(strip=True)
 
         title = re.sub(
-            r"\s*[-|–]\s*(Đọc truyện|Truyện Full|Online|Tàng Thư Viện|Wattpad|WeTruyen|TruyenFull|[a-zA-Z0-9.\-]+\.(com|vn|net|org)).*$",
+            r"\s*[-|–]\s*(Đọc truyện|Truyện Full|Online|Tàng Thư Viện|Wattpad|WeTruyen|TruyenFull|[a-zA-Z0-9.\-]+\.(com|vn|net|org|site|me|top|store|fit)).*$",
             "",
             title,
             flags=re.IGNORECASE
@@ -612,15 +633,27 @@ class UniversalSiteHandler(BaseSiteHandler):
 
         # 2. Author Extraction
         author = "Không rõ"
-        author_meta = soup.select_one('meta[name="author"], [itemprop="author"], .author a, .author')
-        if author_meta:
-            author = author_meta.get("content") or author_meta.get_text(strip=True)
-        else:
-            m = re.search(r"Tác giả\s*[:\s]*\s*([^<\n\r,]+)", html, re.IGNORECASE)
-            if m:
-                cand = m.group(1).strip()
-                if cand and cand.lower() not in ["đang cập nhật", "updating", "chưa rõ"]:
+        author_el = soup.select_one(
+            '.author-content a, .author-content, .artist-content a, .artist-content, '
+            '[itemprop="author"], .author a, .author'
+        )
+        if author_el:
+            cand_a = author_el.get_text(strip=True)
+            if cand_a and cand_a.lower() not in ["đang cập nhật", "updating", "chưa rõ", "updating..."]:
+                author = cand_a
+
+        if not author or author == "Không rõ" or author.lower() in [base_netloc, "admin"]:
+            author_meta = soup.select_one('meta[name="author"]')
+            if author_meta and author_meta.get("content"):
+                cand = author_meta["content"].strip()
+                if cand and cand.lower() not in [base_netloc, "admin"] and not re.search(r"\.(store|com|vn|net|org|top|info|fit|site|me)$", cand.lower()):
                     author = cand
+            else:
+                m = re.search(r"Tác giả\s*[:\s]*\s*([^<\n\r,]+)", html, re.IGNORECASE)
+                if m:
+                    cand = m.group(1).strip()
+                    if cand and cand.lower() not in ["đang cập nhật", "updating", "chưa rõ"]:
+                        author = cand
 
         author = re.sub(r"<[^>]+>", "", author).strip()
         author = re.sub(r"^[–—\-:\s]+|[–—\-:\s]+$", "", author).strip()
@@ -684,14 +717,15 @@ class UniversalSiteHandler(BaseSiteHandler):
                 for a in c_tag.find_all("a", href=True):
                     h = a.get("href", "")
                     t = a.get_text(strip=True)
-                    if re.search(r"(chuong|chapter|chap|hoi)[-_/]?\d+", h, re.I) or re.search(r"^(Chương|Hồi|Chap|Chapter)\s+\d+", t, re.I):
+                    if (re.search(r"/(?:chuong|chapter|chap)[-_/]?\d+", h, re.I) or re.search(r"/(?:hoi)[-_/]\d+", h, re.I)) or re.search(r"^(?:Chương|Hồi|Chap|Chapter)\s+\d+", t, re.I):
                         return True
                 return False
 
             # Priority 1: dedicated main-story chapter containers (including Madara .listing-chapters_wrap / ul.version-chap)
             primary_containers = curr_soup.select(
                 ".listing-chapters_wrap, ul.version-chap, #manga-chapters-holder, "
-                ".es-chapters .chapter-list, #danh-sach-chuong, #list-chapter"
+                ".es-chapters .chapter-list, #danh-sach-chuong, #list-chapter, "
+                ".story-detail__list-chapter, [class*='list-chapter']"
             )
             containers = [c for c in primary_containers if _container_has_chap_links(c)]
 
@@ -704,7 +738,7 @@ class UniversalSiteHandler(BaseSiteHandler):
                 filtered = [
                     c for c in raw_containers
                     if not c.find_parent(["aside"])
-                    and not c.find_parent(class_=re.compile(r"(sidebar|widget|related|popular|c-sidebar|latest-posters)", re.I))
+                    and not c.find_parent(class_=re.compile(r"(sidebar|widget|related|popular|c-sidebar|latest-posters|story-item)", re.I))
                 ]
                 containers = [c for c in filtered if _container_has_chap_links(c)]
 
@@ -715,8 +749,8 @@ class UniversalSiteHandler(BaseSiteHandler):
 
             # If no containers OR container links didn't have chapter hrefs, fallback to full page search
             has_chap_anchor = any(
-                re.search(r"(chuong|chapter|chap|hoi)[-_/]?\d+", a.get("href", ""), re.I)
-                or re.search(r"^(Chương|Hồi|Chap|Chapter)\s+\d+", a.get_text(strip=True), re.I)
+                (re.search(r"/(?:chuong|chapter|chap)[-_/]?\d+", a.get("href", ""), re.I) or re.search(r"/(?:hoi)[-_/]\d+", a.get("href", ""), re.I))
+                or re.search(r"^(?:Chương|Hồi|Chap|Chapter)\s+\d+", a.get_text(strip=True), re.I)
                 for a in candidate_links
             )
             if not candidate_links or not has_chap_anchor:
@@ -728,10 +762,16 @@ class UniversalSiteHandler(BaseSiteHandler):
                         continue
                     if _is_pagination_link(a, href):
                         continue
+                    # Skip whole story URLs that do not point to a specific chapter
+                    if re.search(r"/(?:truyen|story|manga|book)/[^/]+/?$", href, re.I) and not re.search(r"/(?:chuong|chapter|chap)[-_/]?\d+", href, re.I):
+                        continue
+                    # Skip sidebar/related widgets
+                    if a.find_parent(["aside"]) or a.find_parent(class_=re.compile(r"(sidebar|widget|related|popular|c-sidebar|latest-posters|story-item)", re.I)):
+                        continue
                     a_classes = " ".join(a.get("class", []))
                     if any(btn_cls in a_classes for btn_cls in ["es-btn", "btn-primary", "btn-secondary", "btn-success"]):
                         continue
-                    if re.search(r"(chuong|chapter|chap|hoi)[-_/]?\d+", href, re.I) or re.search(r"^(Chương|Hồi|Chap|Chapter)\s+\d+", text, re.I):
+                    if (re.search(r"/(?:chuong|chapter|chap)[-_/]?\d+", href, re.I) or re.search(r"/(?:hoi)[-_/]\d+", href, re.I)) or re.search(r"^(?:Chương|Hồi|Chap|Chapter)\s+\d+", text, re.I):
                         candidate_links.append(a)
 
             for a in candidate_links:
@@ -740,6 +780,14 @@ class UniversalSiteHandler(BaseSiteHandler):
                     continue
 
                 if _is_pagination_link(a, href):
+                    continue
+
+                # Skip whole story URLs that do not point to a specific chapter
+                if re.search(r"/(?:truyen|story|manga|book)/[^/]+/?$", href, re.I) and not re.search(r"/(?:chuong|chapter|chap)[-_/]?\d+", href, re.I):
+                    continue
+
+                # Skip sidebar/related widgets
+                if a.find_parent(["aside"]) or a.find_parent(class_=re.compile(r"(sidebar|widget|related|popular|c-sidebar|latest-posters|story-item)", re.I)):
                     continue
 
                 a_classes = " ".join(a.get("class", []))
@@ -820,7 +868,33 @@ class UniversalSiteHandler(BaseSiteHandler):
                             logger.debug(f"Error fetching story_core ajax page {paged}: {e}")
                             break
 
-            # 2. Madara manga_get_chapters (e.g. Madara themes, laophatgia)
+            # 2. Madara ajax/chapters/ endpoint (modern Madara themes, e.g. hemtruyen.me)
+            if not ajax_items and (
+                "manga-chapters-holder" in html
+                or "ajax/chapters" in html
+                or "wp-manga" in html
+                or "manga_get_chapters" in html
+            ):
+                cand_endpoints = [
+                    urllib.parse.urljoin(url.rstrip("/") + "/", "ajax/chapters/"),
+                ]
+                m_base = re.search(r'base_url["\']?\s*[:=]\s*["\']([^"\']+)["\']', html)
+                if m_base:
+                    cand_endpoints.insert(0, urllib.parse.urljoin(m_base.group(1).rstrip("/") + "/", "ajax/chapters/"))
+
+                for ep in cand_endpoints:
+                    try:
+                        resp_text = fetcher.post(ep, data={}, referer=url, is_ajax=True)
+                        if resp_text and len(resp_text) > 100:
+                            chunk_soup = BeautifulSoup(resp_text, "html.parser")
+                            new_chaps = _harvest_links(chunk_soup)
+                            if new_chaps:
+                                ajax_items.extend(new_chaps)
+                                break
+                    except Exception as e:
+                        logger.debug(f"Error fetching Madara ajax/chapters/ at {ep}: {e}")
+
+            # 3. Madara manga_get_chapters (classic Madara via admin-ajax.php)
             if not ajax_items and ("manga_get_chapters" in html or "wp-manga-chapter" in html):
                 m_id = re.search(r"(?:manga_id|post_id|data-id)\s*[:=]\s*['\"]?(\d+)['\"]?", html)
                 manga_id = m_id.group(1) if m_id else None
@@ -948,11 +1022,23 @@ class UniversalSiteHandler(BaseSiteHandler):
                     cont_path_parts = [p for p in cont_parsed.path.split("/") if p]
                     new_story_urls = []
                     if len(cont_path_parts) >= 2:
+                        slug = cont_path_parts[-2]
                         cand_story_path = "/" + "/".join(cont_path_parts[:-1]) + "/"
-                        cand_story_url = urllib.parse.urlunparse((
+                        if slug and slug not in ("public", "truyen", "story", "manga", "novel"):
+                            new_story_urls.append(urllib.parse.urlunparse((
+                                cont_parsed.scheme, cont_parsed.netloc, f"/truyen/{slug}/", "", "", ""
+                            )))
+                        if not cand_story_path.startswith("/truyen/"):
+                            new_story_urls.append(urllib.parse.urlunparse((
+                                cont_parsed.scheme, cont_parsed.netloc, "/truyen" + cand_story_path, "", "", ""
+                            )))
+                        new_story_urls.append(urllib.parse.urlunparse((
                             cont_parsed.scheme, cont_parsed.netloc, cand_story_path, "", "", ""
-                        ))
-                        new_story_urls.append(cand_story_url)
+                        )))
+                        if slug and slug not in ("public", "truyen", "story", "manga", "novel"):
+                            new_story_urls.append(urllib.parse.urlunparse((
+                                cont_parsed.scheme, cont_parsed.netloc, f"/{slug}/", "", "", ""
+                            )))
                     new_story_urls.append(cont_url)
 
                     added_count = 0
