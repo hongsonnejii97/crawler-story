@@ -31,6 +31,11 @@ DEFAULT_AD_PHRASES = [
     r"(?:ấn|bấm|click)\s*(?:tiếp|vào\s*đây|để|ngay)?\s*(?:để\s*)?(?:đọc|xem)(?:\s*tiếp)?(?:\s*(?:chương|tập|phần)\s*\d+)?",
     r"chương\s*\d+\s*[-–—:]+\s*(?:ấn|bấm|click)\s*.*",
     r"theo dõi kênh telegram",
+    r"chương\s*này\s*đã\s*bị\s*khoá.*",
+    r"vui\s*lòng\s*ấn\s*vào\s*popup.*",
+    r"ấn\s*vào\s*đây\s*để\s*mở\s*lại\s*popup.*",
+    r"mời\s*quý\s*độc\s*giả\s*click\s*vào\s*link.*shopee.*",
+    r"mở\s*ứng\s*dụng\s*shopee.*",
     r"mở ứng dụng shopee",
     r"click vào liên kết hoặc ảnh",
     r"zalo\.me/\S+",
@@ -53,7 +58,8 @@ DEFAULT_AD_SELECTORS = [
     ".chapter-box", ".box-chapter", ".reading-header", ".reading-footer",
     ".rating-box", ".donate-box", ".bottom-ads", ".top-ads", ".es-story-actions",
     ".code-block", "[class*='ai-viewport']", "[class*='ai-insert']",
-    ".er-partner-info", "#er-partner-info", "[class*='er-partner-info']", "[data-affiliate-click]"
+    ".er-partner-info", "#er-partner-info", "[class*='er-partner-info']", "[data-affiliate-click]",
+    "#chapterLockNotice", "#reopenPopupBtn", ".chap-nav-bar"
 ]
 
 class ContentCleaner:

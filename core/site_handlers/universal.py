@@ -112,6 +112,13 @@ def check_for_coming_soon(soup: BeautifulSoup):
 def _is_pagination_link(a_tag: Tag, href: str) -> bool:
     """Return True if an <a> tag is a pagination link rather than a chapter link."""
     a_classes = " ".join(a_tag.get("class", [])).lower()
+    if any(c in a_classes for c in ["next-chap", "prev-chap", "btn-next", "nav-next"]):
+        return False
+
+    a_text = a_tag.get_text(separator=" ", strip=True).lower()
+    if re.search(r"^(chương\s*(?:tiếp|sau|trước)|next\s*chapter|tiếp\s*theo)", a_text, re.I):
+        return False
+
     if any(c in a_classes for c in ["page-numbers", "page-link", "pagenavi"]):
         return True
 
@@ -121,6 +128,8 @@ def _is_pagination_link(a_tag: Tag, href: str) -> bool:
             p_classes = " ".join(parent.get("class", [])).lower()
             p_id = (parent.get("id") or "").lower()
             if any(k in p_classes or k in p_id for k in ["pagination", "pagenavi", "page-numbers", "nav-links", "pager"]):
+                if any(k in p_classes for k in ["chap-pagination", "reading-chap-pagination"]):
+                    continue
                 return True
 
     # Check href query/path patterns for pagination
@@ -526,10 +535,12 @@ def _find_in_content_continuation_link(soup: BeautifulSoup, current_url: str, ti
     )
 
     containers = soup.select(
+        "#chapContent, .chap-content, .story-chap, "
         "#chapter-content, .chapter-content, #chapter-c, .chapter-c, "
         ".chapter-content-area, "
         ".reading, .reading-content, .entry-content, .post-content, "
-        ".es-post .content, .content.es-fs-md, article"
+        ".es-post .content, .content.es-fs-md, article, "
+        ".chap-pagination, .reading-chap-pagination, .chapter-nav, .nav-chapter, .chap-nav-bar"
     )
     if not containers:
         containers = [soup.body or soup]
@@ -539,7 +550,11 @@ def _find_in_content_continuation_link(soup: BeautifulSoup, current_url: str, ti
             href = a.get("href", "").strip()
             if not href or href.startswith("#") or "javascript:" in href:
                 continue
+            if re.search(r"[?&]chuong[-_]?id=-1\b|=-1$", href):
+                continue
             a_text = a.get_text(separator=" ", strip=True)
+            if re.search(r"\b(?:trước|prev|previous)\b", a_text, re.I) or any("prev" in c.lower() for c in a.get("class", [])):
+                continue
             parent_text = a.parent.get_text(separator=" ", strip=True) if a.parent else ""
             if cont_regex.search(a_text) or cont_regex.search(parent_text):
                 cand_url = urllib.parse.urljoin(current_url, href)
@@ -558,6 +573,11 @@ def _find_in_content_continuation_link(soup: BeautifulSoup, current_url: str, ti
                 if a_tag:
                     href = a_tag.get("href", "").strip()
                     if href and not href.startswith("#") and "javascript:" not in href:
+                        if re.search(r"[?&]chuong[-_]?id=-1\b|=-1$", href):
+                            continue
+                        a_tag_text = a_tag.get_text(separator=" ", strip=True)
+                        if re.search(r"\b(?:trước|prev|previous)\b", a_tag_text, re.I) or any("prev" in c.lower() for c in a_tag.get("class", [])):
+                            continue
                         cand_url = urllib.parse.urljoin(current_url, href)
                         if cand_url.rstrip("/") != current_url.rstrip("/"):
                             if (explicit_partner_regex.search(p_text) or explicit_partner_regex.search(a_tag.get_text())) and re.search(r"(?:chuong|chap|hoi)[-_/]?\d+", href, re.I):
@@ -567,6 +587,8 @@ def _find_in_content_continuation_link(soup: BeautifulSoup, current_url: str, ti
                 m_url = re.search(r"https?://[^\s<>\"'`]+", p_text)
                 if m_url:
                     cand_url = m_url.group(0).rstrip(".,;)>]")
+                    if re.search(r"[?&]chuong[-_]?id=-1\b|=-1$", cand_url):
+                        continue
                     if cand_url.rstrip("/") != current_url.rstrip("/"):
                         if explicit_partner_regex.search(p_text) and re.search(r"(?:chuong|chap|hoi)[-_/]?\d+", cand_url, re.I):
                             return cand_url
@@ -1026,12 +1048,29 @@ class UniversalSiteHandler(BaseSiteHandler):
                     last_soup = BeautifulSoup(last_html, "html.parser")
                     cont_url = _find_in_content_continuation_link(last_soup, last_item.url)
                     if not cont_url:
+                        next_nav = last_soup.select_one(
+                            "#next_chap, a.next-chap, a.btn-next, a.es-btn.next, a[rel='next'], "
+                            ".nav-next a, a.btn-chapter-nav"
+                        )
+                        if next_nav and next_nav.get("href"):
+                            raw_href = next_nav["href"].strip()
+                            if raw_href and not raw_href.startswith("#") and "javascript:" not in raw_href:
+                                if not re.search(r"[?&]chuong[-_]?id=-1\b|=-1$", raw_href):
+                                    cand = urllib.parse.urljoin(last_item.url, raw_href)
+                                    if cand.rstrip("/") != last_item.url.rstrip("/") and _is_same_or_mirror_domain(cand, last_item.url):
+                                        cont_url = cand
+                    if not cont_url:
                         break
 
                     logger.info(f"Discovered in-content continuation link: {cont_url}")
                     cont_parsed = urllib.parse.urlparse(cont_url)
                     cont_path_parts = [p for p in cont_parsed.path.split("/") if p]
                     new_story_urls = []
+                    if cont_parsed.query:
+                        clean_story_url = urllib.parse.urlunparse((
+                            cont_parsed.scheme, cont_parsed.netloc, cont_parsed.path, "", "", ""
+                        ))
+                        new_story_urls.append(clean_story_url)
                     if len(cont_path_parts) >= 2:
                         slug = cont_path_parts[-2]
                         cand_story_path = "/" + "/".join(cont_path_parts[:-1]) + "/"
@@ -1137,6 +1176,8 @@ class UniversalSiteHandler(BaseSiteHandler):
         # 1. Chapter Title
         title = ""
         title_candidates = soup.select(
+            ".breadcrumb .active, .breadcrumb li:last-child, .chapter-row.is-current, "
+            ".story-chap > [class*='fs-'], "
             "h1.title, .chapter-title, h1.chapter-title, h2.chapter-title, "
             ".title-chap, .title-chapter, h1, h2"
         )
@@ -1166,6 +1207,7 @@ class UniversalSiteHandler(BaseSiteHandler):
         # 2. Content Extraction
         content_div = None
         for sel in [
+            "#chapContent", ".chap-content", ".story-chap",
             "#chapter-content", ".chapter-content", "#chapter-c", ".chapter-c",
             ".reading", ".reading-content", ".entry-content", ".post-content",
             ".es-post .content", ".content.es-fs-md",
@@ -1211,9 +1253,12 @@ class UniversalSiteHandler(BaseSiteHandler):
         if next_tag and next_tag.get("href"):
             raw_href = next_tag["href"]
             if not raw_href.startswith("#") and "javascript:" not in raw_href and not _is_pagination_link(next_tag, raw_href):
-                cand_url = urllib.parse.urljoin(url, raw_href)
-                if _is_same_or_mirror_domain(cand_url, url) and cand_url.rstrip("/") != url.rstrip("/"):
-                    next_url = cand_url
+                if re.search(r"[?&]chuong[-_]?id=-1\b|=-1$", raw_href):
+                    raw_href = ""
+                if raw_href:
+                    cand_url = urllib.parse.urljoin(url, raw_href)
+                    if _is_same_or_mirror_domain(cand_url, url) and cand_url.rstrip("/") != url.rstrip("/"):
+                        next_url = cand_url
 
         if not next_url:
             for a in soup.find_all("a", href=True):
@@ -1224,6 +1269,8 @@ class UniversalSiteHandler(BaseSiteHandler):
                 ):
                     raw_href = a["href"]
                     if not raw_href.startswith("#") and "javascript:" not in raw_href and not _is_pagination_link(a, raw_href):
+                        if re.search(r"[?&]chuong[-_]?id=-1\b|=-1$", raw_href):
+                            continue
                         cand_url = urllib.parse.urljoin(url, raw_href)
                         if _is_same_or_mirror_domain(cand_url, url) and cand_url.rstrip("/") != url.rstrip("/"):
                             next_url = cand_url
