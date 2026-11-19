@@ -30,11 +30,16 @@ DEFAULT_AD_PHRASES = [
     r"(?:👉\s*)?website\s*phụ(?:\s*👈)?",
     r"(?:ấn|bấm|click)\s*(?:tiếp|vào\s*đây|để|ngay)?\s*(?:để\s*)?(?:đọc|xem)(?:\s*tiếp)?(?:\s*(?:chương|tập|phần)\s*\d+)?",
     r"chương\s*\d+\s*[-–—:]+\s*(?:ấn|bấm|click)\s*.*",
+    r"^\s*(?:đọc|xem)\s*tiếp\s*[:：\-–—]*\s*(?:https?://\S*)?\s*$",
     r"theo dõi kênh telegram",
     r"chương\s*này\s*đã\s*bị\s*khoá.*",
     r"vui\s*lòng\s*ấn\s*vào\s*popup.*",
     r"ấn\s*vào\s*đây\s*để\s*mở\s*lại\s*popup.*",
     r"mời\s*quý\s*độc\s*giả\s*click\s*vào\s*link.*shopee.*",
+    r"mời\s*bạn\s*click\s*ads\s*này.*",
+    r"sau\s*khi\s*bấm\s*liên\s*kết.*mở\s*kh[oó]a.*",
+    r"gsnh\s*và\s*đội\s*ngũ\s*editor.*cảm\s*ơn.*",
+    r"thử\s*tải\s*lại\s*/\s*retry",
     r"mở\s*ứng\s*dụng\s*shopee.*",
     r"mở ứng dụng shopee",
     r"click vào liên kết hoặc ảnh",
@@ -59,7 +64,9 @@ DEFAULT_AD_SELECTORS = [
     ".rating-box", ".donate-box", ".bottom-ads", ".top-ads", ".es-story-actions",
     ".code-block", "[class*='ai-viewport']", "[class*='ai-insert']",
     ".er-partner-info", "#er-partner-info", "[class*='er-partner-info']", "[data-affiliate-click]",
-    "#chapterLockNotice", "#reopenPopupBtn", ".chap-nav-bar"
+    "#chapterLockNotice", "#reopenPopupBtn", ".chap-nav-bar",
+    ".lsu-panel", ".lsu-overlay", ".lsu-modal", ".lsu-popup", ".lsu-retry",
+    ".lsu-cta", ".lsu-invite", ".lsu-subtext", ".lsu-note", ".lsu-thanks"
 ]
 
 class ContentCleaner:
@@ -103,6 +110,25 @@ class ContentCleaner:
             if not inner_txt.strip() and (before_txt or after_txt):
                 sp.string = f"{before_txt}{after_txt}"
             sp.unwrap()
+
+        # Re-stitch sentences split mid-paragraph by .lsu-gate (.lsu-preview + .lsu-locked-content)
+        for gate in container.select(".lsu-gate"):
+            pv = gate.select_one(".lsu-preview")
+            lc = gate.select_one(".lsu-locked-content")
+            if pv and lc:
+                pv_ps = pv.find_all("p")
+                lc_ps = lc.find_all("p")
+                if pv_ps and lc_ps:
+                    last_pv_p = pv_ps[-1]
+                    first_lc_p = lc_ps[0]
+                    last_txt = last_pv_p.get_text().strip()
+                    first_txt = first_lc_p.get_text().strip()
+                    if last_txt and first_txt and not re.search(r'[.!?…"\'”’\])>:]$', last_txt):
+                        if not last_pv_p.get_text().endswith((" ", "\xa0")) and not first_lc_p.get_text().startswith((" ", "\xa0")):
+                            last_pv_p.append(" ")
+                        for node in list(first_lc_p.contents):
+                            last_pv_p.append(node)
+                        first_lc_p.decompose()
 
         # Strip leftover obfuscation/merge attributes on paragraphs
         for tag in container.find_all(True):

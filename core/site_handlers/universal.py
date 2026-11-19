@@ -217,7 +217,7 @@ def extract_full_description(soup: BeautifulSoup) -> str:
     # 1. Check dedicated high-priority synopsis containers in order of specificity
     priority_selectors = [
         ".summary__content", ".description-summary", ".manga-excerpt",
-        ".story-detail__top--desc",
+        ".story-detail__top--desc", ".story-short-desc",
         ".detail-desc", ".detail-desc-wrapper", ".js-desc", "[class*='detail-desc']", "[class*='desc-detail']",
         ".truyen-desc-text", "#desc-content", ".truyen-desc-container", "#gioi-thieu-truyen",
         "[id*='gioi-thieu']", "[class*='gioi-thieu']", "[id*='van-an']", "[class*='van-an']",
@@ -312,7 +312,7 @@ def extract_full_description(soup: BeautifulSoup) -> str:
 
 def _extract_chap_num(item: ChapterItem) -> Optional[float]:
     """Extract numeric chapter index from chapter title or URL for ordering verification."""
-    m_title = re.search(r"(?:chương|chap|chapter|hồi|tiết|phần)\s*(\d+(?:\.\d+)?)", item.title, re.I)
+    m_title = re.search(r"(?:chương|chuong|chap|chapter|hồi|tiết|phần)\s*(\d+(?:\.\d+)?)", item.title, re.I)
     if m_title:
         try:
             return float(m_title.group(1))
@@ -325,6 +325,13 @@ def _extract_chap_num(item: ChapterItem) -> Optional[float]:
             if m_url.group(2):
                 return float(f"{m_url.group(1)}.{m_url.group(2)}")
             return float(m_url.group(1))
+        except ValueError:
+            pass
+
+    m_qid = re.search(r"[?&](?:chuong|chap|chapter)[-_]?id=(\d+)", item.url, re.I)
+    if m_qid:
+        try:
+            return float(int(m_qid.group(1)) + 1)
         except ValueError:
             pass
     return None
@@ -399,10 +406,11 @@ def format_chapter_title_with_code(chap_title: str, chap_num: int, story_code: s
     if not clean_code.startswith("#") and re.match(r"^[A-Za-z]{2,}\d+", clean_code):
         clean_code = f"#{clean_code}"
 
-    m = re.search(r"\b(Chương|Chap|Chapter|Hồi)\s*(\d+(?:\.\d+)?)(.*)$", chap_title, re.IGNORECASE)
+    chap_title = re.sub(r"\s+", " ", chap_title or "").strip()
+    m = re.search(r"\b(Chương|Chuong|Chap|Chapter|Hồi)\s*(\d+(?:\.\d+)?)(.*)$", chap_title, re.IGNORECASE)
     if m:
         term = m.group(1).capitalize()
-        if term.lower() in ("chap", "chapter"):
+        if term.lower() in ("chap", "chapter", "chuong"):
             term = "Chương"
         num_str = m.group(2)
         rest = m.group(3).strip()
@@ -620,7 +628,7 @@ class UniversalSiteHandler(BaseSiteHandler):
         base_netloc = urllib.parse.urlparse(url).netloc.lower()
 
         # Check preferred h1 classes first
-        h1_preferred = soup.select_one("h1.title, h1.story-title, h1.entry-title, h1.name")
+        h1_preferred = soup.select_one("h1.title, h1.story-title, h1.entry-title, h1.name, h1.manga-main-title")
         if h1_preferred:
             txt = h1_preferred.get_text(strip=True)
             if txt and txt.lower() != base_netloc and not re.search(r"\.(store|com|vn|net|org|top|info|fit|site)$", txt.lower()):
@@ -641,6 +649,14 @@ class UniversalSiteHandler(BaseSiteHandler):
                     break
 
         if not title:
+            # Check non-h1 theme story titles (e.g. moontruyen .story .fs-3)
+            theme_title = soup.select_one(".story .fs-3, .story-title, .book-title")
+            if theme_title:
+                txt = theme_title.get_text(strip=True)
+                if txt and txt.lower() != base_netloc:
+                    title = txt
+
+        if not title:
             og_title = soup.select_one('meta[property="og:title"]')
             if og_title and og_title.get("content"):
                 title = og_title["content"].strip()
@@ -648,6 +664,7 @@ class UniversalSiteHandler(BaseSiteHandler):
         if not title and soup.title:
             title = soup.title.get_text(strip=True)
 
+        title = re.sub(r"\s+", " ", title).strip()
         title = re.sub(
             r"\s*[-|–]\s*(Đọc truyện|Truyện Full|Online|Tàng Thư Viện|Wattpad|WeTruyen|TruyenFull|[a-zA-Z0-9.\-]+\.(com|vn|net|org|site|me|top|store|fit)).*$",
             "",
@@ -692,9 +709,28 @@ class UniversalSiteHandler(BaseSiteHandler):
 
         # 4. Cover URL
         cover_url = ""
+        og_cover = ""
         og_img = soup.select_one('meta[property="og:image"]')
         if og_img and og_img.get("content"):
-            cover_url = urllib.parse.urljoin(url, og_img["content"].strip())
+            og_cover = urllib.parse.urljoin(url, og_img["content"].strip())
+            if not re.search(r"/(?:themes?)/.*/(?:loo|logo)\.[a-z]+$", og_cover, re.I):
+                cover_url = og_cover
+
+        if not cover_url:
+            for sel in [
+                ".story-thumb img", ".poster-frame img", ".book-cover img",
+                ".manga-poster img", ".story-cover img", ".summary_image img",
+                ".detail-info img", "img.wp-post-image"
+            ]:
+                img_el = soup.select_one(sel)
+                if img_el:
+                    src = (img_el.get("data-src") or img_el.get("src") or "").strip()
+                    if src and not src.startswith("data:") and not re.search(r"(?:logo|icon|avatar)\.[a-z]+$", src, re.I):
+                        cover_url = urllib.parse.urljoin(url, src)
+                        break
+
+        if not cover_url and og_cover:
+            cover_url = og_cover
 
         return StoryInfo(
             title=title,
@@ -720,7 +756,7 @@ class UniversalSiteHandler(BaseSiteHandler):
         seen_urls: Set[str] = set()
 
         def _extract_link_title_and_date(a_tag: Tag) -> tuple[str, str]:
-            title_span = a_tag.select_one(".chapter-name, .chapter-title, .chap-title, .chap-name")
+            title_span = a_tag.select_one(".chapter-name, .chapter-title, .chap-title, .chap-name, .chap-no")
             date_span = a_tag.select_one(".chapter-date, .chap-date, .chapter-time, .chap-time, time")
             chap_date = ""
             if date_span:
@@ -739,18 +775,35 @@ class UniversalSiteHandler(BaseSiteHandler):
             else:
                 raw_t = a_tag.get_text(separator=" ", strip=True)
 
-            clean_t = re.sub(r"^\s*\d+\s*(?=(?:chương|chap|chapter|hồi)\b)", "", raw_t, flags=re.I).strip()
+            raw_t = re.sub(r"\s+", " ", raw_t).strip()
+            clean_t = re.sub(r"^\s*\d+\s*(?=(?:chương|chuong|chap|chapter|hồi)\b)", "", raw_t, flags=re.I).strip()
             clean_t = re.sub(r"\s*\d+\s*(?:giờ|phút|ngày|tháng|năm|giây|hours?|days?|minutes?)\s*trước\s*$", "", clean_t, flags=re.I).strip()
+            clean_t = re.sub(r"^chuong(\s+\d+)", r"Chương\1", clean_t, flags=re.I)
             return clean_t or raw_t, chap_date
 
         def _harvest_links(curr_soup: BeautifulSoup) -> List[ChapterItem]:
             items = []
 
+            def _looks_like_chapter_link(h: str, t: str) -> bool:
+                if re.search(r"/(?:chuong|chapter|chap)[-_/]?\d+", h, re.I):
+                    return True
+                if re.search(r"/(?:hoi)[-_/]\d+", h, re.I):
+                    return True
+                if re.search(r"[?&](?:chuong|chap|chapter)[-_]?id=\d+", h, re.I):
+                    return True
+                if re.search(r"/[^/]*(?:chuong|chapter|chap)[-_/]?\d+(?:[-_/][^/]*)?/?$", h, re.I):
+                    return True
+                if re.search(r"^(?:Chương|Chuong|Hồi|Chap|Chapter)\s*\d+", t, re.I):
+                    return True
+                if re.search(r"(?:^|\s|[-–—:\t])(?:Chương|Chuong|Hồi|Chap|Chapter)\s+\d+", t, re.I):
+                    return True
+                return False
+
             def _container_has_chap_links(c_tag: Tag) -> bool:
                 for a in c_tag.find_all("a", href=True):
                     h = a.get("href", "")
-                    t = a.get_text(strip=True)
-                    if (re.search(r"/(?:chuong|chapter|chap)[-_/]?\d+", h, re.I) or re.search(r"/(?:hoi)[-_/]\d+", h, re.I)) or re.search(r"^(?:Chương|Hồi|Chap|Chapter)\s+\d+", t, re.I):
+                    t = a.get_text(" ", strip=True)
+                    if _looks_like_chapter_link(h, t):
                         return True
                 return False
 
@@ -758,7 +811,7 @@ class UniversalSiteHandler(BaseSiteHandler):
             primary_containers = curr_soup.select(
                 ".listing-chapters_wrap, ul.version-chap, #manga-chapters-holder, "
                 ".es-chapters .chapter-list, #danh-sach-chuong, #list-chapter, "
-                ".story-detail__list-chapter, [class*='list-chapter']"
+                ".story-detail__list-chapter, .story-chapters-list, [class*='list-chapter']"
             )
             containers = [c for c in primary_containers if _container_has_chap_links(c)]
 
@@ -782,15 +835,14 @@ class UniversalSiteHandler(BaseSiteHandler):
 
             # If no containers OR container links didn't have chapter hrefs, fallback to full page search
             has_chap_anchor = any(
-                (re.search(r"/(?:chuong|chapter|chap)[-_/]?\d+", a.get("href", ""), re.I) or re.search(r"/(?:hoi)[-_/]\d+", a.get("href", ""), re.I))
-                or re.search(r"^(?:Chương|Hồi|Chap|Chapter)\s+\d+", a.get_text(strip=True), re.I)
+                _looks_like_chapter_link(a.get("href", ""), a.get_text(" ", strip=True))
                 for a in candidate_links
             )
             if not candidate_links or not has_chap_anchor:
                 candidate_links = []
                 for a in curr_soup.find_all("a", href=True):
                     href = a.get("href", "")
-                    text = a.get_text(strip=True)
+                    text = a.get_text(" ", strip=True)
                     if href.startswith("#") or "javascript:" in href or href == "/":
                         continue
                     if _is_pagination_link(a, href):
@@ -804,7 +856,7 @@ class UniversalSiteHandler(BaseSiteHandler):
                     a_classes = " ".join(a.get("class", []))
                     if any(btn_cls in a_classes for btn_cls in ["es-btn", "btn-primary", "btn-secondary", "btn-success"]):
                         continue
-                    if (re.search(r"/(?:chuong|chapter|chap)[-_/]?\d+", href, re.I) or re.search(r"/(?:hoi)[-_/]\d+", href, re.I)) or re.search(r"^(?:Chương|Hồi|Chap|Chapter)\s+\d+", text, re.I):
+                    if _looks_like_chapter_link(href, text):
                         candidate_links.append(a)
 
             for a in candidate_links:
@@ -831,7 +883,7 @@ class UniversalSiteHandler(BaseSiteHandler):
                 full_url = urllib.parse.urljoin(url, href)
 
                 is_generic_button = bool(re.match(
-                    r"^(đọc ngay|đọc từ đầu|đọc tập mới|đọc mới nhất|bắt đầu đọc|mục lục|read now|first chapter|\d+)$",
+                    r"^(đọc ngay|đọc từ đầu|đọc tập mới|đọc mới nhất|bắt đầu đọc|mục lục|chương đầu|chương cuối|read now|first chapter|\d+)$",
                     title.lower().strip()
                 ))
 
@@ -1049,10 +1101,10 @@ class UniversalSiteHandler(BaseSiteHandler):
                     cont_url = _find_in_content_continuation_link(last_soup, last_item.url)
                     if not cont_url:
                         next_nav = last_soup.select_one(
-                            "#next_chap, a.next-chap, a.btn-next, a.es-btn.next, a[rel='next'], "
+                            "#next_chap, a.next-chap, a.chapter-next, a.btn-next, a.es-btn.next, a[rel='next'], "
                             ".nav-next a, a.btn-chapter-nav"
                         )
-                        if next_nav and next_nav.get("href"):
+                        if next_nav and next_nav.get("href") and not any("disabled" in c.lower() for c in next_nav.get("class", [])):
                             raw_href = next_nav["href"].strip()
                             if raw_href and not raw_href.startswith("#") and "javascript:" not in raw_href:
                                 if not re.search(r"[?&]chuong[-_]?id=-1\b|=-1$", raw_href):
@@ -1093,17 +1145,29 @@ class UniversalSiteHandler(BaseSiteHandler):
 
                     added_count = 0
                     current_seen = {c.url.rstrip("/") for c in chapters}
+                    existing_nums = {
+                        n for n in (_extract_chap_num(c) for c in chapters)
+                        if n is not None
+                    }
+                    base_host = urllib.parse.urlparse(url).netloc.lower()
                     for st_url in new_story_urls:
                         try:
                             st_html = fetcher.fetch(st_url, referer=last_item.url)
                             more_items = self.extract_chapter_list(st_html, st_url, fetcher, depth=depth + 1)
                             if more_items:
+                                is_mirror_host = urllib.parse.urlparse(st_url).netloc.lower() != base_host
                                 for itm in more_items:
                                     norm_u = itm.url.rstrip("/")
-                                    if norm_u not in current_seen:
-                                        current_seen.add(norm_u)
-                                        chapters.append(itm)
-                                        added_count += 1
+                                    if norm_u in current_seen:
+                                        continue
+                                    itm_num = _extract_chap_num(itm)
+                                    if is_mirror_host and itm_num is not None and itm_num in existing_nums:
+                                        continue
+                                    current_seen.add(norm_u)
+                                    if itm_num is not None:
+                                        existing_nums.add(itm_num)
+                                    chapters.append(itm)
+                                    added_count += 1
                                 if added_count > 0:
                                     break
                         except Exception as e:
@@ -1173,25 +1237,36 @@ class UniversalSiteHandler(BaseSiteHandler):
         chap_date = extract_chapter_date(soup)
         chap_views = extract_chapter_views(soup)
 
-        # 1. Chapter Title
+        # 1. Chapter Title (check explicit headings first, then breadcrumb/current indicators as fallback)
         title = ""
-        title_candidates = soup.select(
-            ".breadcrumb .active, .breadcrumb li:last-child, .chapter-row.is-current, "
-            ".story-chap > [class*='fs-'], "
+        heading_candidates = soup.select(
             "h1.title, .chapter-title, h1.chapter-title, h2.chapter-title, "
-            ".title-chap, .title-chapter, h1, h2"
+            ".title-chap, .title-chapter, .story-chap > [class*='fs-'], h1, h2"
         )
-        for t in title_candidates:
-            txt = t.get_text(strip=True)
-            if re.search(r"(chương|hồi|chap|chapter|tiết|#st\d+)", txt, re.I):
+        fallback_candidates = soup.select(
+            ".breadcrumb .active, .chapter-row.is-current, .breadcrumb > li:last-child"
+        )
+        chap_title_rx = re.compile(r"(chương|chuong|hồi|chap|chapter|tiết|#st\d+)", re.I)
+
+        for t in heading_candidates:
+            txt = re.sub(r"\s+", " ", t.get_text(" ", strip=True)).strip()
+            if chap_title_rx.search(txt):
                 title = txt
                 break
-        if not title and title_candidates:
-            title = title_candidates[0].get_text(strip=True)
 
-        if not title or not re.search(r"(chương|hồi|chap|chapter|tiết|#st\d+)", title, re.I):
-            if soup.title and re.search(r"(chương|hồi|chap|chapter|tiết)\b", soup.title.get_text(), re.I):
-                raw_st = soup.title.get_text(strip=True)
+        if not title:
+            for t in fallback_candidates:
+                txt = re.sub(r"\s+", " ", t.get_text(" ", strip=True)).strip()
+                if chap_title_rx.search(txt):
+                    title = txt
+                    break
+
+        if not title and heading_candidates:
+            title = re.sub(r"\s+", " ", heading_candidates[0].get_text(" ", strip=True)).strip()
+
+        if not title or not chap_title_rx.search(title):
+            if soup.title and re.search(r"(chương|chuong|hồi|chap|chapter|tiết)\b", soup.title.get_text(), re.I):
+                raw_st = re.sub(r"\s+", " ", soup.title.get_text(" ", strip=True)).strip()
                 raw_st = re.sub(
                     r"\s*[-|–]\s*(Đọc truyện|Truyện Full|Online|Tàng Thư Viện|Wattpad|WeTruyen|[a-zA-Z0-9.\-]+\.(com|vn|net|org|site)).*$",
                     "",
@@ -1201,7 +1276,9 @@ class UniversalSiteHandler(BaseSiteHandler):
                 if raw_st:
                     title = raw_st
 
-        if not title:
+        if title:
+            title = re.sub(r"^chuong(\s+\d+)", r"Chương\1", title, flags=re.I)
+        else:
             title = "Chương không tiêu đề"
 
         # 2. Content Extraction
@@ -1247,10 +1324,10 @@ class UniversalSiteHandler(BaseSiteHandler):
         base_netloc = urllib.parse.urlparse(url).netloc.lower()
         next_url = None
         next_tag = soup.select_one(
-            "#next_chap, a.next-chap, a.btn-next, a.es-btn.next, a[rel='next'], "
+            "#next_chap, a.next-chap, a.chapter-next, a.btn-next, a.es-btn.next, a[rel='next'], "
             ".nav-next a, a.btn-chapter-nav"
         )
-        if next_tag and next_tag.get("href"):
+        if next_tag and next_tag.get("href") and not any("disabled" in c.lower() for c in next_tag.get("class", [])):
             raw_href = next_tag["href"]
             if not raw_href.startswith("#") and "javascript:" not in raw_href and not _is_pagination_link(next_tag, raw_href):
                 if re.search(r"[?&]chuong[-_]?id=-1\b|=-1$", raw_href):
