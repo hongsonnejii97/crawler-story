@@ -140,6 +140,48 @@ def _is_pagination_link(a_tag: Tag, href: str) -> bool:
 
     return False
 
+def _resolve_css_pseudo_content(soup: BeautifulSoup) -> None:
+    """
+    Resolve anti-copy CSS pseudo-element word injection such as MonkeyD's
+    `.a-659b...:before { content: "Tôi"; }` applied to empty `<span class="a-659b..."></span>`.
+    Replaces matching empty `<span>` tags in-place with plain text before description/chapter extraction.
+    """
+    style_texts = [st.get_text() for st in soup.find_all("style") if st.get_text()]
+    if not style_texts:
+        return
+    combined_css = "\n".join(style_texts)
+    if "content" not in combined_css:
+        return
+
+    before_map = {}
+    after_map = {}
+    rule_rx = re.compile(
+        r"\.([a-zA-Z0-9_-]+)::?(before|after)\s*\{\s*content\s*:\s*(['\"])(.*?)\3\s*;?\s*\}",
+        re.DOTALL
+    )
+    icon_prefix_rx = re.compile(r"^(?:fa|fas|far|fab|bx|bxs|bxl|bi|icon|glyphicon|ri|ti|mdi|la|las|lar)-", re.I)
+
+    for m in rule_rx.finditer(combined_css):
+        cls_name, pseudo, val = m.group(1), m.group(2), m.group(4)
+        if not val or val.startswith("\\") or icon_prefix_rx.match(cls_name):
+            continue
+        if pseudo == "before":
+            before_map[cls_name] = val
+        else:
+            after_map[cls_name] = val
+
+    if not before_map and not after_map:
+        return
+
+    for sp in list(soup.find_all("span")):
+        classes = sp.get("class") or []
+        if not classes or sp.get_text(strip=True):
+            continue
+        prefix = "".join(before_map[c] for c in classes if c in before_map)
+        suffix = "".join(after_map[c] for c in classes if c in after_map)
+        if prefix or suffix:
+            sp.replace_with(f"{prefix}{suffix}")
+
 def extract_full_description(soup: BeautifulSoup) -> str:
     """
     Extract the complete story synopsis ('văn án') directly from the story page HTML.
@@ -620,6 +662,7 @@ class UniversalSiteHandler(BaseSiteHandler):
 
         soup = BeautifulSoup(html, "html.parser")
         check_for_coming_soon(soup)
+        _resolve_css_pseudo_content(soup)
 
         original_id = extract_post_id(soup, url)
 
@@ -755,7 +798,24 @@ class UniversalSiteHandler(BaseSiteHandler):
         chapters: List[ChapterItem] = []
         seen_urls: Set[str] = set()
 
-        def _extract_link_title_and_date(a_tag: Tag) -> tuple[str, str]:
+        parsed_story_url = urllib.parse.urlparse(url)
+        story_path_parts = [p for p in parsed_story_url.path.split("/") if p]
+        story_slug = ""
+        if story_path_parts:
+            cand_slug = re.sub(r"\.(html|htm|php)$", "", story_path_parts[-1], flags=re.I).lower()
+            if len(cand_slug) >= 4 and cand_slug not in ("truyen", "story", "manga", "novel", "book", "public"):
+                story_slug = cand_slug
+
+        def _is_story_slug_chapter_href(h: str) -> bool:
+            if not story_slug:
+                return False
+            return bool(re.search(
+                rf"/{re.escape(story_slug)}/[^/?#]*\d+(?:\.\d+)?(?:\.html?)?/?$",
+                h,
+                re.I
+            ))
+
+        def _extract_link_title_and_date(a_tag: Tag, href: str = "") -> tuple[str, str]:
             title_span = a_tag.select_one(".chapter-name, .chapter-title, .chap-title, .chap-name, .chap-no")
             date_span = a_tag.select_one(".chapter-date, .chap-date, .chapter-time, .chap-time, time")
             chap_date = ""
@@ -779,6 +839,14 @@ class UniversalSiteHandler(BaseSiteHandler):
             clean_t = re.sub(r"^\s*\d+\s*(?=(?:chương|chuong|chap|chapter|hồi)\b)", "", raw_t, flags=re.I).strip()
             clean_t = re.sub(r"\s*\d+\s*(?:giờ|phút|ngày|tháng|năm|giây|hours?|days?|minutes?)\s*trước\s*$", "", clean_t, flags=re.I).strip()
             clean_t = re.sub(r"^chuong(\s+\d+)", r"Chương\1", clean_t, flags=re.I)
+            if re.match(r"^\d+(?:\.\d+)?$", clean_t):
+                if (
+                    a_tag.find_parent(class_="episode-title")
+                    or a_tag.find_parent(id="listChapters")
+                    or a_tag.find_parent(class_="list-chapters")
+                    or _is_story_slug_chapter_href(href)
+                ):
+                    clean_t = f"Chương {clean_t}"
             return clean_t or raw_t, chap_date
 
         def _harvest_links(curr_soup: BeautifulSoup) -> List[ChapterItem]:
@@ -792,6 +860,8 @@ class UniversalSiteHandler(BaseSiteHandler):
                 if re.search(r"[?&](?:chuong|chap|chapter)[-_]?id=\d+", h, re.I):
                     return True
                 if re.search(r"/[^/]*(?:chuong|chapter|chap)[-_/]?\d+(?:[-_/][^/]*)?/?$", h, re.I):
+                    return True
+                if _is_story_slug_chapter_href(h):
                     return True
                 if re.search(r"^(?:Chương|Chuong|Hồi|Chap|Chapter)\s*\d+", t, re.I):
                     return True
@@ -807,10 +877,11 @@ class UniversalSiteHandler(BaseSiteHandler):
                         return True
                 return False
 
-            # Priority 1: dedicated main-story chapter containers (including Madara .listing-chapters_wrap / ul.version-chap)
+            # Priority 1: dedicated main-story chapter containers (including Madara .listing-chapters_wrap / ul.version-chap, MonkeyD #listChapters)
             primary_containers = curr_soup.select(
                 ".listing-chapters_wrap, ul.version-chap, #manga-chapters-holder, "
                 ".es-chapters .chapter-list, #danh-sach-chuong, #list-chapter, "
+                "#listChapters, .list-chapters, "
                 ".story-detail__list-chapter, .story-chapters-list, [class*='list-chapter']"
             )
             containers = [c for c in primary_containers if _container_has_chap_links(c)]
@@ -879,7 +950,7 @@ class UniversalSiteHandler(BaseSiteHandler):
                 if any(btn_cls in a_classes for btn_cls in ["es-btn", "btn-primary", "btn-secondary", "btn-success"]):
                     continue
 
-                title, chap_date = _extract_link_title_and_date(a)
+                title, chap_date = _extract_link_title_and_date(a, href)
                 full_url = urllib.parse.urljoin(url, href)
 
                 is_generic_button = bool(re.match(
@@ -1232,6 +1303,7 @@ class UniversalSiteHandler(BaseSiteHandler):
 
         soup = BeautifulSoup(html, "html.parser")
         check_for_coming_soon(soup)
+        _resolve_css_pseudo_content(soup)
 
         original_id = extract_post_id(soup, url)
         chap_date = extract_chapter_date(soup)
@@ -1284,6 +1356,7 @@ class UniversalSiteHandler(BaseSiteHandler):
         # 2. Content Extraction
         content_div = None
         for sel in [
+            "#chapter-content-render",
             "#chapContent", ".chap-content", ".story-chap",
             "#chapter-content", ".chapter-content", "#chapter-c", ".chapter-c",
             ".reading", ".reading-content", ".entry-content", ".post-content",
@@ -1352,6 +1425,22 @@ class UniversalSiteHandler(BaseSiteHandler):
                         if _is_same_or_mirror_domain(cand_url, url) and cand_url.rstrip("/") != url.rstrip("/"):
                             next_url = cand_url
                             break
+
+        if not next_url:
+            # Handle JS onclick chapter navigation (e.g. MonkeyD actionChangeChapter('slug,2'))
+            for a in soup.find_all("a", attrs={"onclick": re.compile(r"actionChangeChapter", re.I)}):
+                if any("disabled" in c.lower() for c in a.get("class", [])):
+                    continue
+                txt = a.get_text(separator=" ", strip=True).lower()
+                if re.search(r"(chương\s*sau|chương\s*tiếp|tiếp\s*theo|next)", txt, re.I):
+                    m_oc = re.search(r"actionChangeChapter\(\s*['\"]([^,'\"]+),([^'\"]+)['\"]\s*\)", a.get("onclick", ""))
+                    if m_oc:
+                        oc_slug, oc_chap = m_oc.group(1).strip(), m_oc.group(2).strip()
+                        if oc_slug and oc_chap:
+                            cand_url = urllib.parse.urljoin(url, f"/{oc_slug}/{oc_chap}.html")
+                            if cand_url.rstrip("/") != url.rstrip("/"):
+                                next_url = cand_url
+                                break
 
         if not next_url:
             next_url = _find_in_content_continuation_link(soup, url, title)

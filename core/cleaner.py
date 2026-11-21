@@ -39,6 +39,9 @@ DEFAULT_AD_PHRASES = [
     r"mời\s*bạn\s*click\s*ads\s*này.*",
     r"sau\s*khi\s*bấm\s*liên\s*kết.*mở\s*kh[oó]a.*",
     r"gsnh\s*và\s*đội\s*ngũ\s*editor.*cảm\s*ơn.*",
+    r"monkeyd\s*và\s*đội\s*ngũ\s*editor.*cảm\s*ơn.*",
+    r"truyện\s*được\s*đăng\s*tải.*monkeyd.*",
+    r"^\s*chương\s*trước(?:\s+chương\s*(?:sau|tiếp))?\s*$",
     r"thử\s*tải\s*lại\s*/\s*retry",
     r"mở\s*ứng\s*dụng\s*shopee.*",
     r"mở ứng dụng shopee",
@@ -66,7 +69,8 @@ DEFAULT_AD_SELECTORS = [
     ".er-partner-info", "#er-partner-info", "[class*='er-partner-info']", "[data-affiliate-click]",
     "#chapterLockNotice", "#reopenPopupBtn", ".chap-nav-bar",
     ".lsu-panel", ".lsu-overlay", ".lsu-modal", ".lsu-popup", ".lsu-retry",
-    ".lsu-cta", ".lsu-invite", ".lsu-subtext", ".lsu-note", ".lsu-thanks"
+    ".lsu-cta", ".lsu-invite", ".lsu-subtext", ".lsu-note", ".lsu-thanks",
+    ".actcl", "p.signature", ".signature"
 ]
 
 class ContentCleaner:
@@ -129,6 +133,13 @@ class ContentCleaner:
                         for node in list(first_lc_p.contents):
                             last_pv_p.append(node)
                         first_lc_p.decompose()
+
+        # Strip embedded prev/next navigation divs inside chapter containers (e.g. MonkeyD actionChangeChapter)
+        for nav_div in list(container.find_all("div")):
+            if nav_div.decomposed:
+                continue
+            if nav_div.find("a", attrs={"onclick": re.compile(r"actionChangeChapter", re.I)}) and not nav_div.find("p"):
+                nav_div.decompose()
 
         # Strip leftover obfuscation/merge attributes on paragraphs
         for tag in container.find_all(True):
